@@ -113,16 +113,23 @@ def fetch_worksheet_as_df(worksheet_name):
     try:
         logging.info(f"Đang đọc dữ liệu từ Google Sheet, worksheet: '{worksheet_name}'...")
 
-        # === THAY ĐỔI LOGIC XÁC THỰC GOOGLE ===
-        # Ưu tiên đọc từ st.secrets khi triển khai
+        # Logic xác thực không đổi
         if "gcp_service_account" in st.secrets:
             gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-        # Nếu không, dùng file cho môi trường local
         else:
             credentials_path = resource_path(config.SERVICE_ACCOUNT_FILE)
             gc = gspread.service_account(filename=credentials_path)
 
-        spreadsheet = gc.open(config.SHEET_NAME)
+        # === THAY ĐỔI CÁCH MỞ FILE ===
+        # Ưu tiên mở bằng URL từ secrets khi deploy
+        if "google_sheet" in st.secrets and "url" in st.secrets["google_sheet"]:
+            logging.info("Mở Google Sheet bằng URL từ Secrets...")
+            spreadsheet = gc.open_by_url(st.secrets["google_sheet"]["url"])
+        # Nếu không, dùng cách cũ (mở bằng tên) cho localhost
+        else:
+            logging.info("Mở Google Sheet bằng tên từ file config...")
+            spreadsheet = gc.open(config.SHEET_NAME)
+
         worksheet = spreadsheet.worksheet(worksheet_name)
         records = worksheet.get_all_records()
         logging.info(f"✅ Đọc thành công {len(records)} dòng từ worksheet '{worksheet_name}'.")
@@ -216,21 +223,26 @@ def append_df_to_worksheet(df_to_append, worksheet_name):
         return 0, "Không có dữ liệu để gửi."
 
     try:
-        # ... (phần code xử lý num_rows_to_add không đổi) ...
         num_rows_to_add = len(df_to_append)
         logging.info(f"Chuẩn bị ghi {num_rows_to_add} dòng xuống worksheet '{worksheet_name}'...")
 
-        # === THAY ĐỔI LOGIC XÁC THỰC GOOGLE ===
+        # Logic xác thực không đổi
         if "gcp_service_account" in st.secrets:
             gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
         else:
             credentials_path = resource_path(config.SERVICE_ACCOUNT_FILE)
             gc = gspread.service_account(filename=credentials_path)
 
-        spreadsheet = gc.open(config.SHEET_NAME)
-        worksheet = spreadsheet.worksheet(worksheet_name)
+        # === THAY ĐỔI CÁCH MỞ FILE ===
+        if "google_sheet" in st.secrets and "url" in st.secrets["google_sheet"]:
+            logging.info("Mở Google Sheet bằng URL từ Secrets...")
+            spreadsheet = gc.open_by_url(st.secrets["google_sheet"]["url"])
+        else:
+            logging.info("Mở Google Sheet bằng tên từ file config...")
+            spreadsheet = gc.open(config.SHEET_NAME)
 
-        # Phần còn lại của hàm giữ nguyên...
+        # Phần còn lại của hàm giữ nguyên
+        worksheet = spreadsheet.worksheet(worksheet_name)
         existing_data = worksheet.get_all_values()
         next_row_index = len(existing_data) + 1
         worksheet.add_rows(num_rows_to_add)
