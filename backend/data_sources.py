@@ -1,5 +1,3 @@
-# GhithuWebApp/backend/data_sources.py
-
 import gspread
 import pandas as pd
 import requests
@@ -9,25 +7,27 @@ import logging
 import diskcache
 import sys
 import os
+import streamlit as st  # <<< THÊM DÒNG NÀY ĐỂ SỬA LỖI
 
 # Giúp Python tìm thấy file config ở thư mục cha
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import config
 
 # Khởi tạo cache, lưu trong thư mục 'api_cache'
-# Dữ liệu trong cache sẽ hết hạn sau 3600 giây (1 giờ)
 CACHE = diskcache.Cache('api_cache')
 
+
 def resource_path(relative_path):
-    """ Lấy đường dẫn tuyệt đối đến tài nguyên, hoạt động cho cả môi trường dev và PyInstaller """
+    """ Lấy đường dẫn tuyệt đối đến tài nguyên """
     try:
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-
     return os.path.join(base_path, relative_path)
 
 
+# ... (các hàm _build_soap_request, _get_bgw_invoices, execute_sql_query, fetch_dataframe giữ nguyên) ...
+# Dán lại cho chắc chắn
 def _build_soap_request(function_name, sql_query):
     """Xây dựng nội dung của một SOAP request một cách an toàn."""
     soap_body_template = """<?xml version="1.0" encoding="utf-8"?>
@@ -41,27 +41,6 @@ def _build_soap_request(function_name, sql_query):
         user=config.API_USER
     )
 
-def _get_bgw_invoices(sohoadon_list, function_name='f_Select_SQL_Nganhang'):
-    """
-    Hàm riêng để lấy danh sách hóa đơn đã tồn tại trong BGW theo từng phần (chunk).
-    """
-    if not sohoadon_list:
-        return pd.DataFrame()
-
-    all_bgw_dfs = []
-    chunk_size = 500
-    for i in range(0, len(sohoadon_list), chunk_size):
-        chunk = sohoadon_list[i:i + chunk_size]
-        formatted_chunk_list = "', '".join(map(str, chunk))
-        sql_bgw_chunk = f"SELECT {config.API_COL_SHDON_BGW} FROM BGW_HD WHERE {config.API_COL_SHDON_BGW} IN ('{formatted_chunk_list}')"
-        df_bgw_chunk = fetch_dataframe(function_name, sql_bgw_chunk) # fetch_dataframe đã được cache
-        if not df_bgw_chunk.empty:
-            all_bgw_dfs.append(df_bgw_chunk)
-
-    if not all_bgw_dfs:
-        return pd.DataFrame()
-
-    return pd.concat(all_bgw_dfs, ignore_index=True)
 
 @CACHE.memoize(expire=3600)
 def execute_sql_query(function_name, sql_query):
@@ -92,10 +71,9 @@ def fetch_dataframe(function_name, sql_query, dtypes=None):
     """Thực thi truy vấn và chuyển kết quả XML thành một DataFrame của Pandas."""
     xml_response = execute_sql_query(function_name, sql_query)
     try:
-        # Sử dụng 'lxml' một cách tường minh
         df = pd.read_xml(io.StringIO(xml_response), xpath=".//diffgr:diffgram/NewDataSet/Table1",
-                           namespaces={"diffgr": "urn:schemas-microsoft-com:xml-diffgram-v1"}, dtype=dtypes,
-                           parse_dates=False, parser='lxml')
+                         namespaces={"diffgr": "urn:schemas-microsoft-com:xml-diffgram-v1"}, dtype=dtypes,
+                         parse_dates=False, parser='lxml')
         logging.info(f"Phân tích XML thành DataFrame thành công, có {len(df)} dòng.")
         return df
     except (ValueError, KeyError):
@@ -106,6 +84,7 @@ def fetch_dataframe(function_name, sql_query, dtypes=None):
         raise ValueError(f"Lỗi khi phân tích XML: {e}")
 
 
+# === HÀM ĐÃ ĐƯỢC SỬA LẠI ===
 def fetch_worksheet_as_df(worksheet_name):
     """
     Kết nối đến Google Sheet và đọc dữ liệu từ một worksheet cụ thể theo tên.
@@ -113,20 +92,18 @@ def fetch_worksheet_as_df(worksheet_name):
     try:
         logging.info(f"Đang đọc dữ liệu từ Google Sheet, worksheet: '{worksheet_name}'...")
 
-        # Logic xác thực không đổi
+        # Logic xác thực với st.secrets
         if "gcp_service_account" in st.secrets:
             gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-        else:
+        else:  # Fallback cho môi trường local
             credentials_path = resource_path(config.SERVICE_ACCOUNT_FILE)
             gc = gspread.service_account(filename=credentials_path)
 
-        # === THAY ĐỔI CÁCH MỞ FILE ===
-        # Ưu tiên mở bằng URL từ secrets khi deploy
+        # Logic mở file với st.secrets
         if "google_sheet" in st.secrets and "url" in st.secrets["google_sheet"]:
             logging.info("Mở Google Sheet bằng URL từ Secrets...")
             spreadsheet = gc.open_by_url(st.secrets["google_sheet"]["url"])
-        # Nếu không, dùng cách cũ (mở bằng tên) cho localhost
-        else:
+        else:  # Fallback cho môi trường local
             logging.info("Mở Google Sheet bằng tên từ file config...")
             spreadsheet = gc.open(config.SHEET_NAME)
 
@@ -135,33 +112,30 @@ def fetch_worksheet_as_df(worksheet_name):
         logging.info(f"✅ Đọc thành công {len(records)} dòng từ worksheet '{worksheet_name}'.")
         return pd.DataFrame(records)
     except Exception as e:
+        # Ghi log lỗi thật sự (ví dụ: NameError) trước khi raise lỗi chung chung
         logging.error(f"Lỗi khi đọc worksheet '{worksheet_name}': {e}", exc_info=True)
         raise ConnectionError(
             f"Lỗi: Không tìm thấy hoặc không thể đọc worksheet '{worksheet_name}'. Vui lòng kiểm tra file log.")
 
 
+# ... (các hàm get_sheet_data_for_report, fetch_unpaid_debt_details, fetch_bgw_payment_dates không đổi)
 def get_sheet_data_for_report():
-    """
-    Lấy dữ liệu sheet cho chức năng Báo cáo Tuần.
-    """
     db_df = fetch_worksheet_as_df(config.DB_SHEET)
     on_off_df = fetch_worksheet_as_df(config.ON_OFF_SHEET)
     return db_df, on_off_df
 
+
 def fetch_unpaid_debt_details():
-    """Lấy chi tiết các hóa đơn chưa được giải trừ từ hệ thống (Dùng cho App 1)."""
     try:
         sql_hoadon = (
             f"SELECT {config.API_COL_DANHBA}, {config.API_COL_SOHOADON}, "
             f"{config.API_COL_KY}, {config.API_COL_NAM} "
             f"FROM HoaDon WHERE {config.API_COL_NGAYGIAI} IS NULL"
         )
-        dtypes = {config.API_COL_DANHBA: str, config.API_COL_SOHOADON: str, config.API_COL_KY: str, config.API_COL_NAM: str}
+        dtypes = {config.API_COL_DANHBA: str, config.API_COL_SOHOADON: str, config.API_COL_KY: str,
+                  config.API_COL_NAM: str}
         df_hoadon = fetch_dataframe('f_Select_SQL_Thutien', sql_hoadon, dtypes=dtypes)
-
-        if df_hoadon.empty:
-            return {}, None
-
+        if df_hoadon.empty: return {}, None
         df_hoadon = df_hoadon.rename(columns={
             config.API_COL_DANHBA: 'DANHBA', config.API_COL_SOHOADON: 'SOHOADON',
             config.API_COL_KY: 'KY', config.API_COL_NAM: 'NAM'
@@ -177,8 +151,7 @@ def fetch_unpaid_debt_details():
             hoadon_chua_tra = df_hoadon[~df_hoadon['SOHOADON'].astype(str).str.strip().isin(shdon_to_exclude)].copy()
         else:
             hoadon_chua_tra = df_hoadon.copy()
-        if hoadon_chua_tra.empty:
-            return {}, latest_period_str
+        if hoadon_chua_tra.empty: return {}, latest_period_str
         hoadon_chua_tra['ky_nam'] = hoadon_chua_tra['KY'].str.zfill(2) + '/' + hoadon_chua_tra['NAM']
         unpaid_details = (
             hoadon_chua_tra.groupby('DANHBA')['ky_nam']
@@ -190,11 +163,23 @@ def fetch_unpaid_debt_details():
         logging.error(f"Lỗi khi lấy chi tiết dữ liệu nợ: {e}", exc_info=True)
         return {}, None
 
-def fetch_bgw_payment_dates(sohoadon_list):
-    """Lấy ngày thanh toán từ BGW_HD cho một danh sách số hóa đơn cụ thể."""
-    if not sohoadon_list:
-        return pd.DataFrame()
 
+def _get_bgw_invoices(sohoadon_list, function_name='f_Select_SQL_Nganhang'):
+    if not sohoadon_list: return pd.DataFrame()
+    all_bgw_dfs = []
+    chunk_size = 500
+    for i in range(0, len(sohoadon_list), chunk_size):
+        chunk = sohoadon_list[i:i + chunk_size]
+        formatted_chunk_list = "', '".join(map(str, chunk))
+        sql_bgw_chunk = f"SELECT {config.API_COL_SHDON_BGW} FROM BGW_HD WHERE {config.API_COL_SHDON_BGW} IN ('{formatted_chunk_list}')"
+        df_bgw_chunk = fetch_dataframe(function_name, sql_bgw_chunk)
+        if not df_bgw_chunk.empty: all_bgw_dfs.append(df_bgw_chunk)
+    if not all_bgw_dfs: return pd.DataFrame()
+    return pd.concat(all_bgw_dfs, ignore_index=True)
+
+
+def fetch_bgw_payment_dates(sohoadon_list):
+    if not sohoadon_list: return pd.DataFrame()
     all_bgw_dfs = []
     chunk_size = 500
     for i in range(0, len(sohoadon_list), chunk_size):
@@ -203,10 +188,8 @@ def fetch_bgw_payment_dates(sohoadon_list):
         sql_query = (f"SELECT {config.API_COL_SHDON_BGW}, {config.API_COL_NGAYTT_BGW} "
                      f"FROM BGW_HD WHERE {config.API_COL_SHDON_BGW} IN ('{formatted_chunk_list}')")
         df_chunk = fetch_dataframe('f_Select_SQL_Nganhang', sql_query, dtypes={config.API_COL_SHDON_BGW: str})
-        if not df_chunk.empty:
-            all_bgw_dfs.append(df_chunk)
-    if not all_bgw_dfs:
-        return pd.DataFrame()
+        if not df_chunk.empty: all_bgw_dfs.append(df_chunk)
+    if not all_bgw_dfs: return pd.DataFrame()
     bgw_df = pd.concat(all_bgw_dfs, ignore_index=True)
     bgw_df = bgw_df.rename(columns={
         config.API_COL_SHDON_BGW: 'SOHOADON',
@@ -216,6 +199,7 @@ def fetch_bgw_payment_dates(sohoadon_list):
     return bgw_df.dropna(subset=['SOHOADON', 'NgayThanhToan_BGW'])
 
 
+# === HÀM ĐÃ ĐƯỢC SỬA LẠI ===
 def append_df_to_worksheet(df_to_append, worksheet_name):
     """Ghi các dòng từ một DataFrame vào cuối một worksheet."""
     if df_to_append.empty:
@@ -226,22 +210,22 @@ def append_df_to_worksheet(df_to_append, worksheet_name):
         num_rows_to_add = len(df_to_append)
         logging.info(f"Chuẩn bị ghi {num_rows_to_add} dòng xuống worksheet '{worksheet_name}'...")
 
-        # Logic xác thực không đổi
+        # Logic xác thực với st.secrets
         if "gcp_service_account" in st.secrets:
             gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-        else:
+        else:  # Fallback cho môi trường local
             credentials_path = resource_path(config.SERVICE_ACCOUNT_FILE)
             gc = gspread.service_account(filename=credentials_path)
 
-        # === THAY ĐỔI CÁCH MỞ FILE ===
+        # Logic mở file với st.secrets
         if "google_sheet" in st.secrets and "url" in st.secrets["google_sheet"]:
             logging.info("Mở Google Sheet bằng URL từ Secrets...")
             spreadsheet = gc.open_by_url(st.secrets["google_sheet"]["url"])
-        else:
+        else:  # Fallback cho môi trường local
             logging.info("Mở Google Sheet bằng tên từ file config...")
             spreadsheet = gc.open(config.SHEET_NAME)
 
-        # Phần còn lại của hàm giữ nguyên
+        # Phần còn lại của hàm không đổi
         worksheet = spreadsheet.worksheet(worksheet_name)
         existing_data = worksheet.get_all_values()
         next_row_index = len(existing_data) + 1
