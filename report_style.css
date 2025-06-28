@@ -1,0 +1,124 @@
+/* report_style.css */
+
+/* <<< THAY ĐỔI: Khai báo font cục bộ từ thư mục fonts */
+@font-face {
+    font-family: 'Times New Roman';
+    src: url('fonts/times.ttf');
+}
+@font-face {
+    font-family: 'Times New Roman';
+    src: url('fonts/timesbd.ttf');
+    font-weight: bold;
+}
+@font-face {
+    font-family: 'Times New Roman';
+    src: url('fonts/timesi.ttf');
+    font-style: italic;
+}
+@font-face {
+    font-family: 'Times New Roman';
+    src: url('fonts/timesbi.ttf');
+    font-weight: bold;
+    font-style: italic;
+}
+/* --- KẾT THÚC THAY ĐỔI --- */
+
+@page {
+    size: A4;
+    margin: 1.5cm;
+}
+
+body {
+    font-family: 'Times New Roman', serif;
+    font-size: 11pt;
+    line-height: 1.3    ; /* Giảm nhẹ khoảng cách dòng */
+}
+
+/* --- Định dạng phần Header --- */
+.header-table {
+    width: 100%;
+    border: none;
+    text-align: center;
+    font-size: 11pt;
+}
+.header-table td {
+    width: 50%;
+    vertical-align: top;
+}
+.header-line {
+    border-top: 1px solid black;
+    width: 60%;
+    margin: 2px auto 0;
+}
+
+/* --- Định dạng các khối tiêu đề --- */
+.report-date {
+    text-align: right;
+    font-style: italic;
+    /* <<< THAY ĐỔI: Giảm khoảng cách phía trên dòng ngày tháng */
+    margin-top: 0.3cm;
+}
+
+.report-title-block {
+    text-align: center;
+    /* <<< THAY ĐỔI: Giảm khoảng cách trên và dưới của khối tiêu đề chính */
+    margin: 0.3cm 0;
+}
+
+.report-title-block h1 {
+    font-size: 16pt;
+    margin-bottom: 0;
+}
+.report-title-block p {
+    font-size: 13pt;
+    margin: 5px 0 0 0;
+}
+
+.table-title {
+    font-size: 14pt;
+    font-weight: bold;
+    /* <<< THAY ĐỔI: Giảm khoảng cách trên và dưới của tiêu đề bảng */
+    margin-top: 0.2cm;
+    margin-bottom: 0.2cm;
+}
+
+/* --- Định dạng cho các bảng dữ liệu --- */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11pt;
+}
+.data-table th, .data-table td {
+    border: 1px solid #333;
+    padding: 5px; /* Giảm nhẹ padding trong ô */
+    text-align: center;
+    vertical-align: middle;
+}
+.data-table th {
+    background-color: #E0E0E0;
+    font-weight: bold;
+}
+.data-table tr:nth-child(even) {
+    background-color: #f2f2f2;
+}
+b {
+    font-weight: bold;
+}
+
+/* --- Các định dạng cột (không đổi) --- */
+#summary_table th:nth-child(1), #summary_table td:nth-child(1) { width: 20%; }
+#summary_table th:nth-child(2), #summary_table td:nth-child(2) { width: 18%; }
+#summary_table th:nth-child(3), #summary_table td:nth-child(3) { width: 22%; }
+#summary_table th:nth-child(4), #summary_table td:nth-child(4) { width: 20%; }
+#summary_table th:nth-child(5), #summary_table td:nth-child(5) { width: 20%; }
+
+#stats_table th:nth-child(1), #stats_table td:nth-child(1) { width: 25%; }
+#stats_table th:nth-child(2), #stats_table td:nth-child(2) { width: 25%; }
+#stats_table th:nth-child(3), #stats_table td:nth-child(3) { width: 25%; }
+#stats_table th:nth-child(4), #stats_table td:nth-child(4) { width: 25%; }
+
+/* --- Định dạng cho bảng chữ ký (không đổi) --- */
+.signature-table { margin-top: 0.5cm; width: 100%; text-align: center; }
+.signature-table td { width: 50%; vertical-align: top; }
+.signature-table .role { display: block; font-weight: bold; margin-bottom: 2cm; }
+.signature-table .name { display: block; font-style: italic; }

@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+gspread
+weasyprint
+matplotlib
+openpyxl
+diskcache
+lxml

@@ -1,0 +1,10 @@
+# Môi trường ảo
+venv/
+
+# Thư mục cache
+__pycache__/
+.cache/
+api_cache/
+
+# File nhạy cảm
+chung_chi.json
