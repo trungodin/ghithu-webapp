@@ -1,8 +1,6 @@
-# GhithuWebApp/pages/3_🔍_Loc_du_lieu_ton.py
-
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 import time
 import sys
 import os
@@ -24,17 +22,16 @@ st.set_page_config(
 # --- Khởi tạo session state ---
 if 'debt_filter_results' not in st.session_state:
     st.session_state.debt_filter_results = None
+if 'select_all_toggle' not in st.session_state:
+    st.session_state.select_all_toggle = False
 
 
-# <<< THÊM MỚI: Hàm callback để xử lý sự kiện "Chọn tất cả"
+# --- Hàm callback để xử lý sự kiện "Chọn tất cả"
 def toggle_all_rows():
     """Được gọi khi checkbox 'Chọn tất cả' thay đổi trạng thái."""
     if st.session_state.debt_filter_results is not None:
-        # Lấy trạng thái mới của checkbox "Chọn tất cả"
         new_state = st.session_state.get('select_all_toggle', False)
-        # Cập nhật toàn bộ cột _is_selected trong DataFrame
         st.session_state.debt_filter_results['_is_selected'] = new_state
-
 
 # --- Giao diện ---
 st.title("🔍 Lọc Dữ liệu Tồn & Gửi Danh sách")
@@ -49,8 +46,7 @@ with st.form("debt_filter_form"):
         ky = st.number_input("Kỳ", value=date.today().month, min_value=1, max_value=12, step=1)
     with col2:
         min_tongky = st.number_input("Tổng Kỳ >=", value=2, min_value=1, step=1)
-        min_tongcong = st.number_input("Tổng Cộng >=", value=0, min_value=0, step=1,
-                                       help="Nhập số tiền không cần dấu phẩy.")
+        min_tongcong = st.number_input("Tổng Cộng >=", value=0, min_value=0, step=1, help="Nhập số tiền không cần dấu phẩy.")
     with col3:
         dot_filter_str = st.text_input("Chỉ lấy Đợt (cách nhau bởi dấu phẩy)", placeholder="VD: 1,2,15,20")
         limit = st.number_input("Giới hạn Top (0 là không giới hạn)", value=100, min_value=0, step=1)
@@ -61,29 +57,23 @@ with st.form("debt_filter_form"):
 
 # --- Xử lý logic khi nhấn nút lọc ---
 if submitted:
-    # Reset lại checkbox "Chọn tất cả" mỗi khi lọc mới
     st.session_state.select_all_toggle = False
     with st.spinner("Đang truy vấn dữ liệu tồn..."):
         try:
             start_time = time.time()
-            # Xử lý input
             dot_filter = [int(d.strip()) for d in dot_filter_str.split(',') if d.strip().isdigit()]
             exclude_codemoi = [c.strip().upper() for c in exclude_codemoi_str.split(',') if c.strip()]
-
+            
             params = {
-                'nam': nam, 'ky': ky,
-                'min_tongky': min_tongky,
-                'min_tongcong': min_tongcong,
-                'exclude_codemoi': exclude_codemoi,
-                'dot_filter': dot_filter,
-                'limit': limit if limit > 0 else None
+                'nam': nam, 'ky': ky, 'min_tongky': min_tongky, 'min_tongcong': min_tongcong,
+                'exclude_codemoi': exclude_codemoi, 'dot_filter': dot_filter, 'limit': limit if limit > 0 else None
             }
-
+            
             result_df = run_debt_filter_analysis(params)
 
             if not result_df.empty:
                 result_df.insert(0, "_is_selected", False)
-
+            
             st.session_state.debt_filter_results = result_df
             st.session_state.query_time = time.time() - start_time
             st.toast(f"Tìm thấy {len(result_df)} kết quả!")
@@ -95,30 +85,34 @@ if submitted:
 # --- Hiển thị kết quả và khu vực hành động ---
 if st.session_state.debt_filter_results is not None:
     df = st.session_state.debt_filter_results
-
+    
     st.divider()
-
+    
     if df.empty:
         st.warning("Không tìm thấy dữ liệu nào phù hợp với điều kiện lọc của bạn.")
     else:
-        st.write("--- KIỂM TRA KIỂU DỮ LIỆU ---")
-        st.write(df.dtypes)
-        st.subheader("Kết quả lọc")
+        # Đảm bảo cột gốc là kiểu số để tính toán
+        df['TONGCONG'] = pd.to_numeric(df['TONGCONG'], errors='coerce').fillna(0).astype(int)
+        
+        # TẠO CỘT MỚI ĐỂ HIỂN THỊ VỚI ĐỊNH DẠNG CHUỖI
+        df['Tổng Cộng Formatted'] = df['TONGCONG'].apply(lambda x: f"{x:,.0f} VND")
 
+        st.subheader("Kết quả lọc")
+        
         col1, col2, col3 = st.columns([1, 2, 1])
         with col1:
-            st.metric("Số danh bạ tìm thấy", f"{len(df):,}")
+             st.metric("Số danh bạ tìm thấy", f"{len(df):,}")
         with col2:
-            total_sum = int(df['TONGCONG'].sum())
-            st.metric("Tổng cộng", f"{total_sum:,} VND")
+             total_sum = int(df['TONGCONG'].sum())
+             st.metric("Tổng cộng", f"{total_sum:,} VND")
         with col3:
-            st.metric("Thời gian truy vấn", f"{st.session_state.get('query_time', 0):.2f} giây")
+             st.metric("Thời gian truy vấn", f"{st.session_state.get('query_time', 0):.2f} giây")
 
         st.markdown("---")
-
+        
         st.subheader("Gửi Danh sách đi xử lý")
         action_col1, action_col2, action_col3, action_col4 = st.columns([1.5, 1.5, 1.5, 2])
-
+        
         with action_col1:
             assign_group = st.selectbox("Giao cho Nhóm", options=config.GROUP_OPTIONS[1:])
         with action_col2:
@@ -130,44 +124,53 @@ if st.session_state.debt_filter_results is not None:
                 with st.spinner(f"Đang gửi {len(selected_rows)} khách hàng cho nhóm {assign_group}..."):
                     try:
                         assign_date_str = assign_date.strftime("%d/%m/%Y")
-                        df_to_send = selected_rows.drop(columns=["_is_selected"])
-
+                        # Khi gửi đi, loại bỏ các cột hiển thị thừa
+                        df_to_send = selected_rows.drop(columns=["_is_selected", "Tổng Cộng Formatted"])
                         count, msg = prepare_and_send_to_sheet(df_to_send, assign_group, assign_date_str)
-
                         if count > 0:
                             st.success(msg)
-                            st.session_state.debt_filter_results.loc[
-                                st.session_state.debt_filter_results["_is_selected"], "_is_selected"] = False
+                            st.session_state.debt_filter_results.loc[st.session_state.debt_filter_results["_is_selected"], "_is_selected"] = False
                             st.rerun()
                         else:
                             st.error(msg)
                     except Exception as e:
                         st.error("Lỗi nghiêm trọng khi gửi dữ liệu.")
                         st.exception(e)
-
-        # <<< THÊM MỚI: Checkbox "Chọn tất cả"
+        
         with action_col4:
             st.checkbox(
-                "Chọn / Bỏ chọn Tất cả",
-                key='select_all_toggle',
+                "Chọn / Bỏ chọn Tất cả", 
+                key='select_all_toggle', 
                 on_change=toggle_all_rows,
                 help="Tích để chọn tất cả các dòng trong bảng, bỏ tích để hủy chọn."
             )
 
         st.markdown("Tích vào ô ở cột `_is_selected` để chọn khách hàng cần gửi.")
+        
+        display_columns_in_order = [
+            "_is_selected", "DANHBA", "GB", "Tổng Cộng Formatted", "TONGKY", "KY_NAM", 
+            "TENKH", "SO", "DUONG", "MLT2", "SoMoi", "DOT", "CodeMoi", "SoThan"
+        ]
+        
+        final_columns_to_display = [col for col in display_columns_in_order if col in df.columns]
 
         edited_df = st.data_editor(
             df,
-            key="data_editor",
-            use_container_width=True,
+            column_order=final_columns_to_display,
             column_config={
                 "_is_selected": st.column_config.CheckboxColumn("Chọn", default=False),
-                "TONGCONG": st.column_config.NumberColumn("Tổng Cộng", format="%,.0f VND")
+                "Tổng Cộng Formatted": st.column_config.TextColumn("Tổng Cộng"),
+                "TONGCONG": None, # Ẩn cột số gốc
             },
             disabled=df.columns.drop("_is_selected"),
+            use_container_width=True,
             height=500,
+            key="data_editor_final"
         )
-
+        
+        if not edited_df.equals(st.session_state.debt_filter_results):
+            st.session_state.debt_filter_results = edited_df
+            st.rerun()
         if not edited_df.equals(st.session_state.debt_filter_results):
             st.session_state.debt_filter_results = edited_df
             st.rerun()
