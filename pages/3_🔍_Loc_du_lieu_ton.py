@@ -46,7 +46,14 @@ with st.form("debt_filter_form"):
         ky = st.number_input("Kỳ", value=date.today().month, min_value=1, max_value=12, step=1)
     with col2:
         min_tongky = st.number_input("Tổng Kỳ >=", value=2, min_value=1, step=1)
-        min_tongcong = st.number_input("Tổng Cộng >=", value=0, min_value=0, step=1, help="Nhập số tiền không cần dấu phẩy.")
+        min_tongcong = st.number_input(
+            "Tổng Cộng >=",
+            value=None,  # Để trống để placeholder có thể hiển thị
+            min_value=0,
+            step=100000, # Tăng bước nhảy cho các số lớn
+            placeholder="Ví dụ: 10000000",
+            help="Nhập số tiền không cần dấu phẩy hoặc dấu chấm."
+        )
     with col3:
         dot_filter_str = st.text_input("Chỉ lấy Đợt (cách nhau bởi dấu phẩy)", placeholder="VD: 1,2,15,20")
         limit = st.number_input("Giới hạn Top (0 là không giới hạn)", value=100, min_value=0, step=1)
@@ -64,9 +71,15 @@ if submitted:
             dot_filter = [int(d.strip()) for d in dot_filter_str.split(',') if d.strip().isdigit()]
             exclude_codemoi = [c.strip().upper() for c in exclude_codemoi_str.split(',') if c.strip()]
             
+            # === THÊM LOGIC XỬ LÝ CHO GIÁ TRỊ RỖNG ===
+            # Nếu người dùng không nhập gì, coi như giá trị là 0
+            min_tongcong_value = min_tongcong if min_tongcong is not None else 0
+
             params = {
-                'nam': nam, 'ky': ky, 'min_tongky': min_tongky, 'min_tongcong': min_tongcong,
-                'exclude_codemoi': exclude_codemoi, 'dot_filter': dot_filter, 'limit': limit if limit > 0 else None
+                'nam': nam, 'ky': ky, 'min_tongky': min_tongky, 
+                'min_tongcong': min_tongcong_value, # <-- Dùng giá trị đã qua xử lý
+                'exclude_codemoi': exclude_codemoi, 'dot_filter': dot_filter, 
+                'limit': limit if limit > 0 else None
             }
             
             result_df = run_debt_filter_analysis(params)
