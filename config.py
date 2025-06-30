@@ -88,3 +88,16 @@ DB_SHEET_FINAL_COLUMNS = [
 # Thay đổi username và password tại đây
 LOGIN_USERNAME = 'trungodin'
 LOGIN_PASSWORD = 'Nht@100982@'
+
+# ==============================================================================
+# CẤU HÌNH CÁC TÊN CỘT TRONG CSDL (CHO TAB PHÂN TÍCH DOANH THU)
+# ==============================================================================
+# Dựa trên code PyQt bạn đã cung cấp
+SUM_VALUE_COLUMN = 'TONGCONG_BD'
+ORIGINAL_SUM_COLUMN = 'TONGCONG'
+BILLING_YEAR_COLUMN = 'NAM'
+PAYMENT_DATE_COLUMN = 'NGAYGIAI'
+PERIOD_COLUMN = 'KY'
+INVOICE_ID_COLUMN = 'DANHBA'
+SOHOADON_COLUMN = 'SOHOADON'
+TABLE_SOURCE = "HoaDon"

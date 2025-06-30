@@ -466,3 +466,235 @@ def prepare_and_send_to_sheet(selected_df, assign_group, assign_date_str):
     except Exception as e:
         logging.error(f"Lỗi khi chuẩn bị dữ liệu để gửi: {e}", exc_info=True)
         return 0, f"Lỗi khi chuẩn bị dữ liệu: {e}"
+
+
+# Thêm hàm này vào cuối file backend/analysis_logic.py
+
+def run_yearly_revenue_analysis_from_db(start_year, end_year, den_ngay_giai_filter):
+    """
+    Chạy phân tích doanh thu năm (A-B) bằng cách gửi câu lệnh SQL qua API.
+    Phiên bản này sử dụng logic SQL đã được xác thực là hoạt động.
+    """
+    logging.info(f"Bắt đầu Phân tích Doanh thu Năm (DB) cho {start_year}-{end_year}, đến ngày {den_ngay_giai_filter}")
+
+    try:
+        den_ngay_giai_str = den_ngay_giai_filter.strftime('%Y-%m-%d')
+        nhanvien_giai_column = 'NV_GIAI'
+        value_to_exclude_nv_giai = 'NKD'
+
+        # Câu lệnh SQL hoàn chỉnh nhưng đã loại bỏ bộ lọc ngày tháng phức tạp gây lỗi
+        full_query = f"""
+            WITH TermA_CTE AS (
+                SELECT
+                    hd_a.{config.BILLING_YEAR_COLUMN} AS Nam_A,
+                    SUM(hd_a.{config.SUM_VALUE_COLUMN}) AS Sum_A_tongcong_bd
+                FROM {config.TABLE_SOURCE} hd_a
+                WHERE hd_a.{config.BILLING_YEAR_COLUMN} >= {start_year} AND hd_a.{config.BILLING_YEAR_COLUMN} <= {end_year}
+                  AND (hd_a.{nhanvien_giai_column} <> '{value_to_exclude_nv_giai}' OR hd_a.{nhanvien_giai_column} IS NULL)
+                  AND hd_a.{config.SUM_VALUE_COLUMN} IS NOT NULL
+                GROUP BY hd_a.{config.BILLING_YEAR_COLUMN}
+            ),
+            TermB_CTE AS (
+                SELECT
+                    hd_b.{config.BILLING_YEAR_COLUMN} AS Nam_B,
+                    SUM(hd_b.{config.SUM_VALUE_COLUMN} - hd_b.{config.ORIGINAL_SUM_COLUMN}) AS Sum_B_adjustment
+                FROM {config.TABLE_SOURCE} hd_b
+                WHERE hd_b.{config.BILLING_YEAR_COLUMN} >= {start_year} AND hd_b.{config.BILLING_YEAR_COLUMN} <= {end_year}
+                  AND YEAR(hd_b.{config.PAYMENT_DATE_COLUMN}) = hd_b.{config.BILLING_YEAR_COLUMN}
+                  AND hd_b.{config.PAYMENT_DATE_COLUMN} IS NOT NULL
+                  AND CAST(hd_b.{config.PAYMENT_DATE_COLUMN} AS DATE) <= '{den_ngay_giai_str}'
+                  AND hd_b.{config.SUM_VALUE_COLUMN} IS NOT NULL
+                  AND hd_b.{config.ORIGINAL_SUM_COLUMN} IS NOT NULL
+                GROUP BY hd_b.{config.BILLING_YEAR_COLUMN}
+            ),
+            ThucThu_CTE AS (
+                SELECT
+                    t.{config.BILLING_YEAR_COLUMN} AS Nam_TT,
+                    SUM(t.{config.ORIGINAL_SUM_COLUMN}) AS ActualThucThu
+                FROM {config.TABLE_SOURCE} t
+                WHERE t.{config.BILLING_YEAR_COLUMN} >= {start_year} AND t.{config.BILLING_YEAR_COLUMN} <= {end_year}
+                  AND t.{config.PAYMENT_DATE_COLUMN} IS NOT NULL
+                  AND CAST(t.{config.PAYMENT_DATE_COLUMN} AS DATE) <= '{den_ngay_giai_str}'
+                  AND t.{config.BILLING_YEAR_COLUMN} = YEAR(t.{config.PAYMENT_DATE_COLUMN})
+                  AND (t.{nhanvien_giai_column} <> '{value_to_exclude_nv_giai}' OR t.{nhanvien_giai_column} IS NULL)
+                  AND t.{config.ORIGINAL_SUM_COLUMN} IS NOT NULL
+                GROUP BY t.{config.BILLING_YEAR_COLUMN}
+            )
+            SELECT
+                a.Nam_A AS Nam,
+                (ISNULL(a.Sum_A_tongcong_bd, 0) - ISNULL(b.Sum_B_adjustment, 0)) AS TongDoanhThu,
+                ISNULL(tt.ActualThucThu, 0) AS TongThucThu
+            FROM TermA_CTE a
+            LEFT JOIN ThucThu_CTE tt ON a.Nam_A = tt.Nam_TT
+            LEFT JOIN TermB_CTE b ON a.Nam_A = b.Nam_B
+            WHERE a.Nam_A IS NOT NULL
+            ORDER BY a.Nam_A;
+        """
+
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', full_query)
+
+        if df_result.empty:
+            return pd.DataFrame(columns=['Nam', 'TongDoanhThu', 'TongThucThu', 'Tồn Thu', '% Đạt'])
+
+        df_result['Nam'] = pd.to_numeric(df_result['Nam'], errors='coerce').fillna(0).astype(int)
+        df_result['TongDoanhThu'] = pd.to_numeric(df_result['TongDoanhThu'], errors='coerce').fillna(0)
+        df_result['TongThucThu'] = pd.to_numeric(df_result['TongThucThu'], errors='coerce').fillna(0)
+        df_result['Tồn Thu'] = df_result['TongDoanhThu'] - df_result['TongThucThu']
+        df_result['% Đạt'] = np.where(df_result['TongDoanhThu'] != 0,
+                                      (df_result['TongThucThu'] / df_result['TongDoanhThu']) * 100, 0.0)
+
+        logging.info("✅ Hoàn thành Phân tích Doanh thu Năm (DB).")
+        return df_result
+
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong run_yearly_revenue_analysis_from_db: {e}", exc_info=True)
+        raise
+
+
+def run_yearly_revenue_analysis_from_db_DEBUG(start_year, end_year):
+    """
+    Hàm DEBUG: Chạy truy vấn đơn giản nhất có thể để kiểm tra dữ liệu.
+    """
+    logging.info(f"--- CHẠY Ở CHẾ ĐỘ DEBUG ---")
+    try:
+        # Truy vấn đơn giản nhất: Chỉ đếm số hóa đơn và tổng tiền theo năm đã chọn.
+        # Không có bất kỳ điều kiện phức tạp nào khác.
+        debug_query = f"""
+            SELECT 
+                {config.BILLING_YEAR_COLUMN} as Nam,
+                COUNT(*) as SoLuongHoaDon,
+                SUM({config.ORIGINAL_SUM_COLUMN}) as TongTien
+            FROM {config.TABLE_SOURCE}
+            WHERE {config.BILLING_YEAR_COLUMN} >= {start_year} AND {config.BILLING_YEAR_COLUMN} <= {end_year}
+            GROUP BY {config.BILLING_YEAR_COLUMN}
+            ORDER BY {config.BILLING_YEAR_COLUMN};
+        """
+        logging.info(f"DEBUG SQL: {debug_query}")
+
+        # Gọi API với câu lệnh SQL đơn giản
+        df_debug = data_sources.fetch_dataframe('f_Select_SQL_Thutien', debug_query)
+
+        # Trả về trực tiếp để xem kết quả thô
+        return df_debug
+
+    except Exception as e:
+        logging.error(f"Lỗi trong hàm DEBUG: {e}", exc_info=True)
+        raise
+
+# Thêm hàm này vào cuối file backend/analysis_logic.py
+
+def run_monthly_analysis_from_db(selected_year):
+    """
+    Lấy dữ liệu chi tiết theo từng Kỳ/Tháng của một năm đã chọn.
+    Tương đương với KyDataQueryWorker.
+    """
+    logging.info(f"Bắt đầu Phân tích theo Kỳ cho năm {selected_year}")
+
+    try:
+        # Câu lệnh SQL được chuyển thể từ KyDataQueryWorker
+        full_query_ky = f"""
+            WITH DoanhThuTheoKy AS (
+                SELECT 
+                    {config.PERIOD_COLUMN} AS KyDT, 
+                    SUM({config.SUM_VALUE_COLUMN}) AS DoanhThuKyCalc 
+                FROM {config.TABLE_SOURCE} 
+                WHERE {config.BILLING_YEAR_COLUMN} = {selected_year}
+                  AND {config.PERIOD_COLUMN} IS NOT NULL 
+                  AND {config.SUM_VALUE_COLUMN} IS NOT NULL 
+                GROUP BY {config.PERIOD_COLUMN}
+            ), 
+            ThucThuTheoThang AS (
+                SELECT 
+                    MONTH({config.PAYMENT_DATE_COLUMN}) AS ThangTT,
+                    SUM({config.ORIGINAL_SUM_COLUMN}) AS ThucThuThangCalc 
+                FROM {config.TABLE_SOURCE} 
+                WHERE 
+                    {config.BILLING_YEAR_COLUMN} = YEAR({config.PAYMENT_DATE_COLUMN})
+                    AND {config.PERIOD_COLUMN} = MONTH({config.PAYMENT_DATE_COLUMN})
+                    AND YEAR({config.PAYMENT_DATE_COLUMN}) = {selected_year}
+                    AND {config.ORIGINAL_SUM_COLUMN} IS NOT NULL 
+                GROUP BY MONTH({config.PAYMENT_DATE_COLUMN})
+            )
+            SELECT 
+                COALESCE(dtk.KyDT, ttth.ThangTT) AS Ky, 
+                ISNULL(dtk.DoanhThuKyCalc, 0) AS TongDoanhThuKy, 
+                ISNULL(ttth.ThucThuThangCalc, 0) AS TongThucThuThang 
+            FROM DoanhThuTheoKy dtk 
+            FULL OUTER JOIN ThucThuTheoThang ttth ON dtk.KyDT = ttth.ThangTT 
+            WHERE COALESCE(dtk.KyDT, ttth.ThangTT) IS NOT NULL 
+            ORDER BY Ky;
+        """
+
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', full_query_ky)
+
+        if df_result.empty:
+            return pd.DataFrame(columns=['Ky', 'TongDoanhThuKy', 'TongThucThuThang', 'Tồn Thu', '% Đạt'])
+
+        # Xử lý hậu kỳ
+        df_result['Ky'] = pd.to_numeric(df_result['Ky'], errors='coerce').fillna(0).astype(int)
+        df_result['TongDoanhThuKy'] = pd.to_numeric(df_result['TongDoanhThuKy'], errors='coerce').fillna(0)
+        df_result['TongThucThuThang'] = pd.to_numeric(df_result['TongThucThuThang'], errors='coerce').fillna(0)
+
+        df_result['Tồn Thu'] = df_result['TongDoanhThuKy'] - df_result['TongThucThuThang']
+        df_result['% Đạt'] = np.where(
+            df_result['TongDoanhThuKy'] != 0,
+            (df_result['TongThucThuThang'] / df_result['TongDoanhThuKy']) * 100,
+            0.0
+        )
+
+        logging.info(f"✅ Hoàn thành Phân tích theo Kỳ cho năm {selected_year}.")
+        return df_result
+
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong run_monthly_analysis_from_db: {e}", exc_info=True)
+        raise
+
+
+def run_daily_analysis_from_db(selected_year, selected_ky):
+    """
+    Lấy dữ liệu chi tiết theo từng Ngày của một Kỳ/Năm đã chọn.
+    Tương đương với DailyDataQueryWorker.
+    """
+    logging.info(f"Bắt đầu Phân tích theo Ngày cho năm {selected_year}, kỳ {selected_ky}")
+
+    try:
+        # Câu lệnh SQL được chuyển thể từ DailyDataQueryWorker
+        query = f"""
+            WITH RelevantDaysInKy AS (
+                SELECT DISTINCT CAST({config.PAYMENT_DATE_COLUMN} AS DATE) AS NgayKyRelevant 
+                FROM {config.TABLE_SOURCE} H_KY
+                WHERE 
+                    YEAR(H_KY.{config.PAYMENT_DATE_COLUMN}) = {selected_year} 
+                    AND MONTH(H_KY.{config.PAYMENT_DATE_COLUMN}) = {selected_ky} 
+                    AND H_KY.{config.PERIOD_COLUMN} = {selected_ky}
+            ), 
+            DailyAggregates AS (
+                SELECT 
+                    CAST({config.PAYMENT_DATE_COLUMN} AS DATE) AS NgayGiaiAgg,
+                    COUNT(DISTINCT {config.SOHOADON_COLUMN}) AS TotalInvoicesForDate,
+                    SUM({config.ORIGINAL_SUM_COLUMN}) AS TotalCongForDate
+                FROM {config.TABLE_SOURCE} 
+                WHERE {config.ORIGINAL_SUM_COLUMN} IS NOT NULL
+                    AND {config.SOHOADON_COLUMN} IS NOT NULL
+                GROUP BY CAST({config.PAYMENT_DATE_COLUMN} AS DATE)
+            )
+            SELECT 
+                rdk.NgayKyRelevant AS NgayGiaiNgan,
+                ISNULL(da.TotalInvoicesForDate, 0) AS SoLuongHoaDon,
+                ISNULL(da.TotalCongForDate, 0) AS TongCongNgay
+            FROM RelevantDaysInKy rdk 
+            LEFT JOIN DailyAggregates da ON rdk.NgayKyRelevant = da.NgayGiaiAgg 
+            ORDER BY rdk.NgayKyRelevant;
+        """
+
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', query)
+
+        if not df_result.empty:
+            df_result['NgayGiaiNgan'] = pd.to_datetime(df_result['NgayGiaiNgan'], errors='coerce')
+
+        logging.info(f"✅ Hoàn thành Phân tích theo Ngày cho năm {selected_year}, kỳ {selected_ky}.")
+        return df_result
+
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong run_daily_analysis_from_db: {e}", exc_info=True)
+        raise
