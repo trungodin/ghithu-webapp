@@ -443,84 +443,28 @@ def prepare_and_send_to_sheet(selected_df, assign_group, assign_date_str):
 # Thêm hàm này vào cuối file backend/analysis_logic.py
 
 def run_yearly_revenue_analysis_from_db(start_year, end_year, den_ngay_giai_filter):
-    """
-    Chạy phân tích doanh thu năm (A-B) bằng cách gửi câu lệnh SQL qua API.
-    Phiên bản này sử dụng logic SQL đã được xác thực là hoạt động.
-    """
+    # (Đây là phiên bản đầy đủ, đã sửa lỗi của chúng ta)
     logging.info(f"Bắt đầu Phân tích Doanh thu Năm (DB) cho {start_year}-{end_year}, đến ngày {den_ngay_giai_filter}")
-
     try:
-        den_ngay_giai_str = den_ngay_giai_filter.strftime('%Y-%m-%d')
-        nhanvien_giai_column = 'NV_GIAI'
-        value_to_exclude_nv_giai = 'NKD'
-
-        # Câu lệnh SQL hoàn chỉnh nhưng đã loại bỏ bộ lọc ngày tháng phức tạp gây lỗi
+        den_ngay_giai_str = den_ngay_giai_filter.strftime('%Y-%m-%d'); nhanvien_giai_column = 'NV_GIAI'; value_to_exclude_nv_giai = 'NKD'
         full_query = f"""
-            WITH TermA_CTE AS (
-                SELECT
-                    hd_a.{config.BILLING_YEAR_COLUMN} AS Nam_A,
-                    SUM(hd_a.{config.SUM_VALUE_COLUMN}) AS Sum_A_tongcong_bd
-                FROM {config.TABLE_SOURCE} hd_a
-                WHERE hd_a.{config.BILLING_YEAR_COLUMN} >= {start_year} AND hd_a.{config.BILLING_YEAR_COLUMN} <= {end_year}
-                  AND (hd_a.{nhanvien_giai_column} <> '{value_to_exclude_nv_giai}' OR hd_a.{nhanvien_giai_column} IS NULL)
-                  AND hd_a.{config.SUM_VALUE_COLUMN} IS NOT NULL
-                GROUP BY hd_a.{config.BILLING_YEAR_COLUMN}
-            ),
-            TermB_CTE AS (
-                SELECT
-                    hd_b.{config.BILLING_YEAR_COLUMN} AS Nam_B,
-                    SUM(hd_b.{config.SUM_VALUE_COLUMN} - hd_b.{config.ORIGINAL_SUM_COLUMN}) AS Sum_B_adjustment
-                FROM {config.TABLE_SOURCE} hd_b
-                WHERE hd_b.{config.BILLING_YEAR_COLUMN} >= {start_year} AND hd_b.{config.BILLING_YEAR_COLUMN} <= {end_year}
-                  AND YEAR(hd_b.{config.PAYMENT_DATE_COLUMN}) = hd_b.{config.BILLING_YEAR_COLUMN}
-                  AND hd_b.{config.PAYMENT_DATE_COLUMN} IS NOT NULL
-                  AND CAST(hd_b.{config.PAYMENT_DATE_COLUMN} AS DATE) <= '{den_ngay_giai_str}'
-                  AND hd_b.{config.SUM_VALUE_COLUMN} IS NOT NULL
-                  AND hd_b.{config.ORIGINAL_SUM_COLUMN} IS NOT NULL
-                GROUP BY hd_b.{config.BILLING_YEAR_COLUMN}
-            ),
-            ThucThu_CTE AS (
-                SELECT
-                    t.{config.BILLING_YEAR_COLUMN} AS Nam_TT,
-                    SUM(t.{config.ORIGINAL_SUM_COLUMN}) AS ActualThucThu
-                FROM {config.TABLE_SOURCE} t
-                WHERE t.{config.BILLING_YEAR_COLUMN} >= {start_year} AND t.{config.BILLING_YEAR_COLUMN} <= {end_year}
-                  AND t.{config.PAYMENT_DATE_COLUMN} IS NOT NULL
-                  AND CAST(t.{config.PAYMENT_DATE_COLUMN} AS DATE) <= '{den_ngay_giai_str}'
-                  AND t.{config.BILLING_YEAR_COLUMN} = YEAR(t.{config.PAYMENT_DATE_COLUMN})
-                  AND (t.{nhanvien_giai_column} <> '{value_to_exclude_nv_giai}' OR t.{nhanvien_giai_column} IS NULL)
-                  AND t.{config.ORIGINAL_SUM_COLUMN} IS NOT NULL
-                GROUP BY t.{config.BILLING_YEAR_COLUMN}
-            )
-            SELECT
-                a.Nam_A AS Nam,
-                (ISNULL(a.Sum_A_tongcong_bd, 0) - ISNULL(b.Sum_B_adjustment, 0)) AS TongDoanhThu,
-                ISNULL(tt.ActualThucThu, 0) AS TongThucThu
-            FROM TermA_CTE a
-            LEFT JOIN ThucThu_CTE tt ON a.Nam_A = tt.Nam_TT
-            LEFT JOIN TermB_CTE b ON a.Nam_A = b.Nam_B
-            WHERE a.Nam_A IS NOT NULL
-            ORDER BY a.Nam_A;
+            WITH TermA_CTE AS (SELECT hd_a.{config.BILLING_YEAR_COLUMN} AS Nam_A, SUM(hd_a.{config.SUM_VALUE_COLUMN}) AS Sum_A_tongcong_bd FROM {config.TABLE_SOURCE} hd_a WHERE hd_a.{config.BILLING_YEAR_COLUMN} >= {start_year} AND hd_a.{config.BILLING_YEAR_COLUMN} <= {end_year} AND (hd_a.{nhanvien_giai_column} <> '{value_to_exclude_nv_giai}' OR hd_a.{nhanvien_giai_column} IS NULL) AND hd_a.{config.SUM_VALUE_COLUMN} IS NOT NULL GROUP BY hd_a.{config.BILLING_YEAR_COLUMN}),
+            TermB_CTE AS (SELECT hd_b.{config.BILLING_YEAR_COLUMN} AS Nam_B, SUM(hd_b.{config.SUM_VALUE_COLUMN} - hd_b.{config.ORIGINAL_SUM_COLUMN}) AS Sum_B_adjustment FROM {config.TABLE_SOURCE} hd_b WHERE hd_b.{config.BILLING_YEAR_COLUMN} >= {start_year} AND hd_b.{config.BILLING_YEAR_COLUMN} <= {end_year} AND YEAR(hd_b.{config.PAYMENT_DATE_COLUMN}) = hd_b.{config.BILLING_YEAR_COLUMN} AND hd_b.{config.PAYMENT_DATE_COLUMN} IS NOT NULL AND CAST(hd_b.{config.PAYMENT_DATE_COLUMN} AS DATE) <= '{den_ngay_giai_str}' AND hd_b.{config.SUM_VALUE_COLUMN} IS NOT NULL AND hd_b.{config.ORIGINAL_SUM_COLUMN} IS NOT NULL GROUP BY hd_b.{config.BILLING_YEAR_COLUMN}),
+            ThucThu_CTE AS (SELECT t.{config.BILLING_YEAR_COLUMN} AS Nam_TT, SUM(t.{config.ORIGINAL_SUM_COLUMN}) AS ActualThucThu FROM {config.TABLE_SOURCE} t WHERE t.{config.BILLING_YEAR_COLUMN} >= {start_year} AND t.{config.BILLING_YEAR_COLUMN} <= {end_year} AND t.{config.PAYMENT_DATE_COLUMN} IS NOT NULL AND CAST(t.{config.PAYMENT_DATE_COLUMN} AS DATE) <= '{den_ngay_giai_str}' AND t.{config.BILLING_YEAR_COLUMN} = YEAR(t.{config.PAYMENT_DATE_COLUMN}) AND (t.{nhanvien_giai_column} <> '{value_to_exclude_nv_giai}' OR t.{nhanvien_giai_column} IS NULL) AND t.{config.ORIGINAL_SUM_COLUMN} IS NOT NULL GROUP BY t.{config.BILLING_YEAR_COLUMN})
+            SELECT a.Nam_A AS Nam, (ISNULL(a.Sum_A_tongcong_bd, 0) - ISNULL(b.Sum_B_adjustment, 0)) AS TongDoanhThu, ISNULL(tt.ActualThucThu, 0) AS TongThucThu FROM TermA_CTE a LEFT JOIN ThucThu_CTE tt ON a.Nam_A = tt.Nam_TT LEFT JOIN TermB_CTE b ON a.Nam_A = b.Nam_B WHERE a.Nam_A IS NOT NULL ORDER BY a.Nam_A;
         """
-
         df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', full_query)
-
-        if df_result.empty:
-            return pd.DataFrame(columns=['Nam', 'TongDoanhThu', 'TongThucThu', 'Tồn Thu', '% Đạt'])
-
-        df_result['Nam'] = pd.to_numeric(df_result['Nam'], errors='coerce').fillna(0).astype(int)
-        df_result['TongDoanhThu'] = pd.to_numeric(df_result['TongDoanhThu'], errors='coerce').fillna(0)
-        df_result['TongThucThu'] = pd.to_numeric(df_result['TongThucThu'], errors='coerce').fillna(0)
+        final_columns = ['Nam', 'TongDoanhThu', 'TongThucThu', 'Tồn Thu', '% Đạt']
+        if df_result.empty: return pd.DataFrame(columns=final_columns)
+        df_result['Nam'] = pd.to_numeric(df_result['Nam'], errors='coerce').fillna(0).astype(int); df_result['TongDoanhThu'] = pd.to_numeric(df_result['TongDoanhThu'], errors='coerce').fillna(0); df_result['TongThucThu'] = pd.to_numeric(df_result['TongThucThu'], errors='coerce').fillna(0)
         df_result['Tồn Thu'] = df_result['TongDoanhThu'] - df_result['TongThucThu']
-        df_result['% Đạt'] = np.where(df_result['TongDoanhThu'] != 0,
-                                      (df_result['TongThucThu'] / df_result['TongDoanhThu']) * 100, 0.0)
-
-        logging.info("✅ Hoàn thành Phân tích Doanh thu Năm (DB).")
-        return df_result
-
+        df_result['% Đạt'] = np.where(df_result['TongDoanhThu'] != 0, (df_result['TongThucThu'] / df_result['TongDoanhThu']) * 100, 0.0)
+        for col in final_columns:
+            if col not in df_result.columns: df_result[col] = 0
+        return df_result[final_columns]
     except Exception as e:
-        logging.error(f"❌ Lỗi trong run_yearly_revenue_analysis_from_db: {e}", exc_info=True)
-        raise
+        logging.error(f"❌ Lỗi trong run_yearly_revenue_analysis_from_db: {e}", exc_info=True); raise
+
 
 
 def run_yearly_revenue_analysis_from_db_DEBUG(start_year, end_year):
