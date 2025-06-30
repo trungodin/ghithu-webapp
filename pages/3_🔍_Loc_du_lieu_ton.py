@@ -101,6 +101,8 @@ if st.session_state.debt_filter_results is not None:
     if df.empty:
         st.warning("Không tìm thấy dữ liệu nào phù hợp với điều kiện lọc của bạn.")
     else:
+        st.write("--- KIỂM TRA KIỂU DỮ LIỆU ---")
+        st.write(df.dtypes)
         st.subheader("Kết quả lọc")
 
         col1, col2, col3 = st.columns([1, 2, 1])
