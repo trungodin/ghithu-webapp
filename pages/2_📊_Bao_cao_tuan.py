@@ -27,25 +27,26 @@ st.set_page_config(
 # --- Các hàm Helper ---
 def create_pie_chart(pie_data, group_name):
     """Tạo biểu đồ tròn tỷ lệ hoàn thành."""
-    fig = Figure(figsize=(4, 3.5), dpi=100)
+    # === THAY ĐỔI TẠI ĐÂY: Giảm figsize từ (4, 3.5) xuống (3, 2.3) ===
+    fig = Figure(figsize=(3, 2.3), dpi=100)
+    
     if not pie_data or not pie_data.get('sizes'):
-        return fig  # Trả về figure rỗng
+        return fig
 
     ax = fig.add_subplot(111)
     labels, sizes = pie_data['labels'], pie_data['sizes']
     colors, explode = ['#4CAF50', '#F44336'], (0.05, 0)
-
-    # Chỉ vẽ biểu đồ nếu có dữ liệu
+    
     if sum(sizes) > 0:
-        ax.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
-               shadow=False, startangle=90, textprops={'fontsize': 10})
+        ax.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', 
+               shadow=False, startangle=90, textprops={'fontsize': 9}) # Giảm cỡ chữ một chút
         ax.axis('equal')
-        ax.set_title(f"Tỷ lệ Hoàn thành: {group_name}", weight='bold', fontsize=12)
+        ax.set_title(f"Tỷ lệ Hoàn thành: {group_name}", weight='bold', fontsize=11) # Giảm cỡ chữ tiêu đề
     else:
         ax.text(0.5, 0.5, 'Không có dữ liệu', ha='center', va='center', fontsize=12)
         ax.axis('off')
-
-    fig.tight_layout()
+        
+    fig.tight_layout(pad=0.1) # Điều chỉnh khoảng cách
     return fig
 
 
