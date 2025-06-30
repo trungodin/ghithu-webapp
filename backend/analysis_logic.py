@@ -1,5 +1,3 @@
-# GhithuWebApp/backend/analysis_logic.py
-
 import pandas as pd
 import numpy as np
 import logging
@@ -13,24 +11,19 @@ import config
 from backend import data_sources
 
 # ==============================================================================
-# LOGIC CHO DASHBOARD
+# LOGIC CHO TAB 1: DASHBOARD
 # ==============================================================================
 def fetch_dashboard_data():
-    """
-    Lấy và xử lý dữ liệu cho dashboard.
-    Tương đương với DashboardWorker.
-    """
+    """Lấy và xử lý dữ liệu cho dashboard."""
+    # (Hàm này được giữ lại từ phiên bản gốc của bạn)
     try:
         logging.info("Bắt đầu lấy dữ liệu cho Dashboard...")
-
-        sql_hoadon = "SELECT DANHBA, TONGCONG, NAM, KY, SOHOADON FROM HoaDon WHERE NGAYGIAI IS NULL"
+        sql_hoadon = f"SELECT DANHBA, TONGCONG, NAM, KY, SOHOADON FROM {config.TABLE_SOURCE} WHERE NGAYGIAI IS NULL"
         dtypes_hoadon = {'DANHBA': str, 'SOHOADON': str}
         df_hoadon = data_sources.fetch_dataframe('f_Select_SQL_Thutien', sql_hoadon, dtypes=dtypes_hoadon)
-
         sql_kh = "SELECT DanhBa, GB FROM KhachHang"
         dtypes_kh = {'DanhBa': str, 'GB': str}
         df_kh = data_sources.fetch_dataframe('f_Select_SQL_Doc_so', sql_kh, dtypes=dtypes_kh)
-
         if not df_hoadon.empty and not df_kh.empty:
             df_kh = df_kh.rename(columns={'DanhBa': 'DANHBA'})
             df_kh['DANHBA'] = df_kh['DANHBA'].str.zfill(11)
@@ -38,54 +31,33 @@ def fetch_dashboard_data():
             df_merged = pd.merge(df_hoadon, df_kh, on='DANHBA', how='left')
         else:
             df_merged = df_hoadon
-
-        if df_merged.empty:
-            logging.warning("Không có dữ liệu nợ tồn nào sau khi xử lý.")
-            return {}
-
+        if df_merged.empty: return {}
         sohoadon_list = df_merged['SOHOADON'].dropna().unique().tolist()
         if sohoadon_list:
             df_bgw = data_sources._get_bgw_invoices(sohoadon_list)
             if not df_bgw.empty:
                 shdon_to_exclude = df_bgw['SHDon'].astype(str).str.strip().unique()
                 df_merged = df_merged[~df_merged['SOHOADON'].astype(str).str.strip().isin(shdon_to_exclude)]
-
-        if df_merged.empty:
-            logging.warning("Không còn dữ liệu nợ tồn sau khi đối soát BGW.")
-            return {}
-
+        if df_merged.empty: return {}
         df_merged['TONGCONG'] = pd.to_numeric(df_merged['TONGCONG'], errors='coerce').fillna(0)
-
         total_debt = df_merged['TONGCONG'].sum()
         total_debtors = df_merged['DANHBA'].nunique()
         debtor_counts = df_merged.groupby('DANHBA').size()
         debtors_over_3_periods = (debtor_counts >= 3).sum()
-
         debt_by_gb = df_merged.groupby('GB')['TONGCONG'].sum().sort_values(ascending=False).head(10)
-
-        df_merged['KY_NAM_DT'] = pd.to_datetime(
-            df_merged['NAM'].astype(str) + '-' + df_merged['KY'].astype(str).str.zfill(2) + '-01', errors='coerce')
+        df_merged['KY_NAM_DT'] = pd.to_datetime(df_merged['NAM'].astype(str) + '-' + df_merged['KY'].astype(str).str.zfill(2) + '-01', errors='coerce')
         debt_over_time = df_merged.groupby(pd.Grouper(key='KY_NAM_DT', freq='M'))['TONGCONG'].sum()
         debt_over_time = debt_over_time[debt_over_time.index.year >= date.today().year - 2]
-
-        results = {
-            'total_debt': total_debt,
-            'total_debtors': total_debtors,
-            'debtors_over_3_periods': debtors_over_3_periods,
-            'debt_by_gb': debt_by_gb,
-            'debt_over_time': debt_over_time,
-        }
+        results = {'total_debt': total_debt, 'total_debtors': total_debtors, 'debtors_over_3_periods': debtors_over_3_periods, 'debt_by_gb': debt_by_gb, 'debt_over_time': debt_over_time}
         logging.info("✅ Hoàn thành lấy dữ liệu Dashboard.")
         return results
-
     except Exception as e:
-        logging.error(f"❌ Lỗi trong fetch_dashboard_data: {e}", exc_info=True)
-        raise
+        logging.error(f"❌ Lỗi trong fetch_dashboard_data: {e}", exc_info=True); raise
 
 # ==============================================================================
-# LOGIC CHO BÁO CÁO TUẦN
+# LOGIC CHO TAB 2: BÁO CÁO TUẦN (Google Sheet)
 # ==============================================================================
-# Các hàm con cho báo cáo tuần
+# (Các hàm này được giữ lại từ phiên bản gốc của bạn)
 def _report_prepare_initial_data():
     db_df, on_off_df = data_sources.get_sheet_data_for_report()
     if config.DB_COL_KY_NAM in db_df.columns:
@@ -328,7 +300,7 @@ def run_weekly_report_analysis(start_date_str, end_date_str, selected_group, pay
         raise
 
 # ==============================================================================
-# LOGIC CHO LỌC DỮ LIỆU TỒN
+# LOGIC CHO TAB 3: LỌC DỮ LIỆU TỒN & GỬI DS (Google Sheet)
 # ==============================================================================
 def run_debt_filter_analysis(params):
     """
@@ -698,3 +670,158 @@ def run_daily_analysis_from_db(selected_year, selected_ky):
     except Exception as e:
         logging.error(f"❌ Lỗi trong run_daily_analysis_from_db: {e}", exc_info=True)
         raise
+
+# ==============================================================================
+# LOGIC CHO TAB 4: PHÂN TÍCH DOANH THU (CSDL)
+# ==============================================================================
+def run_yearly_revenue_analysis_from_db(start_year, end_year, den_ngay_giai_filter):
+    logging.info(f"Bắt đầu Phân tích Doanh thu Năm (DB) cho {start_year}-{end_year}, đến ngày {den_ngay_giai_filter}")
+    try:
+        den_ngay_giai_str = den_ngay_giai_filter.strftime('%Y-%m-%d'); nhanvien_giai_column = 'NV_GIAI'; value_to_exclude_nv_giai = 'NKD'
+        full_query = f"""
+            WITH TermA_CTE AS (SELECT hd_a.{config.BILLING_YEAR_COLUMN} AS Nam_A, SUM(hd_a.{config.SUM_VALUE_COLUMN}) AS Sum_A_tongcong_bd FROM {config.TABLE_SOURCE} hd_a WHERE hd_a.{config.BILLING_YEAR_COLUMN} >= {start_year} AND hd_a.{config.BILLING_YEAR_COLUMN} <= {end_year} AND (hd_a.{nhanvien_giai_column} <> '{value_to_exclude_nv_giai}' OR hd_a.{nhanvien_giai_column} IS NULL) AND hd_a.{config.SUM_VALUE_COLUMN} IS NOT NULL GROUP BY hd_a.{config.BILLING_YEAR_COLUMN}),
+            TermB_CTE AS (SELECT hd_b.{config.BILLING_YEAR_COLUMN} AS Nam_B, SUM(hd_b.{config.SUM_VALUE_COLUMN} - hd_b.{config.ORIGINAL_SUM_COLUMN}) AS Sum_B_adjustment FROM {config.TABLE_SOURCE} hd_b WHERE hd_b.{config.BILLING_YEAR_COLUMN} >= {start_year} AND hd_b.{config.BILLING_YEAR_COLUMN} <= {end_year} AND YEAR(hd_b.{config.PAYMENT_DATE_COLUMN}) = hd_b.{config.BILLING_YEAR_COLUMN} AND hd_b.{config.PAYMENT_DATE_COLUMN} IS NOT NULL AND CAST(hd_b.{config.PAYMENT_DATE_COLUMN} AS DATE) <= '{den_ngay_giai_str}' AND hd_b.{config.SUM_VALUE_COLUMN} IS NOT NULL AND hd_b.{config.ORIGINAL_SUM_COLUMN} IS NOT NULL GROUP BY hd_b.{config.BILLING_YEAR_COLUMN}),
+            ThucThu_CTE AS (SELECT t.{config.BILLING_YEAR_COLUMN} AS Nam_TT, SUM(t.{config.ORIGINAL_SUM_COLUMN}) AS ActualThucThu FROM {config.TABLE_SOURCE} t WHERE t.{config.BILLING_YEAR_COLUMN} >= {start_year} AND t.{config.BILLING_YEAR_COLUMN} <= {end_year} AND t.{config.PAYMENT_DATE_COLUMN} IS NOT NULL AND CAST(t.{config.PAYMENT_DATE_COLUMN} AS DATE) <= '{den_ngay_giai_str}' AND t.{config.BILLING_YEAR_COLUMN} = YEAR(t.{config.PAYMENT_DATE_COLUMN}) AND (t.{nhanvien_giai_column} <> '{value_to_exclude_nv_giai}' OR t.{nhanvien_giai_column} IS NULL) AND t.{config.ORIGINAL_SUM_COLUMN} IS NOT NULL GROUP BY t.{config.BILLING_YEAR_COLUMN})
+            SELECT a.Nam_A AS Nam, (ISNULL(a.Sum_A_tongcong_bd, 0) - ISNULL(b.Sum_B_adjustment, 0)) AS TongDoanhThu, ISNULL(tt.ActualThucThu, 0) AS TongThucThu FROM TermA_CTE a LEFT JOIN ThucThu_CTE tt ON a.Nam_A = tt.Nam_TT LEFT JOIN TermB_CTE b ON a.Nam_A = b.Nam_B WHERE a.Nam_A IS NOT NULL ORDER BY a.Nam_A;
+        """
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', full_query)
+        final_columns = ['Nam', 'TongDoanhThu', 'TongThucThu', 'Tồn Thu', '% Đạt']
+        if df_result.empty: return pd.DataFrame(columns=final_columns)
+        df_result['Nam'] = pd.to_numeric(df_result['Nam'], errors='coerce').fillna(0).astype(int)
+        df_result['TongDoanhThu'] = pd.to_numeric(df_result['TongDoanhThu'], errors='coerce').fillna(0)
+        df_result['TongThucThu'] = pd.to_numeric(df_result['TongThucThu'], errors='coerce').fillna(0)
+        df_result['Tồn Thu'] = df_result['TongDoanhThu'] - df_result['TongThucThu']
+        df_result['% Đạt'] = np.where(df_result['TongDoanhThu'] != 0, (df_result['TongThucThu'] / df_result['TongDoanhThu']) * 100, 0.0)
+        for col in final_columns:
+            if col not in df_result.columns: df_result[col] = 0
+        return df_result[final_columns]
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong run_yearly_revenue_analysis_from_db: {e}", exc_info=True); raise
+
+def run_monthly_analysis_from_db(selected_year):
+    logging.info(f"Bắt đầu Phân tích theo Kỳ cho năm {selected_year}")
+    try:
+        full_query_ky = f"""
+            WITH DoanhThuTheoKy AS (SELECT {config.PERIOD_COLUMN} AS KyDT, SUM({config.SUM_VALUE_COLUMN}) AS DoanhThuKyCalc FROM {config.TABLE_SOURCE} WHERE {config.BILLING_YEAR_COLUMN} = {selected_year} AND {config.PERIOD_COLUMN} IS NOT NULL AND {config.SUM_VALUE_COLUMN} IS NOT NULL GROUP BY {config.PERIOD_COLUMN}), 
+            ThucThuTheoThang AS (SELECT MONTH({config.PAYMENT_DATE_COLUMN}) AS ThangTT, SUM({config.ORIGINAL_SUM_COLUMN}) AS ThucThuThangCalc FROM {config.TABLE_SOURCE} WHERE {config.BILLING_YEAR_COLUMN} = YEAR({config.PAYMENT_DATE_COLUMN}) AND {config.PERIOD_COLUMN} = MONTH({config.PAYMENT_DATE_COLUMN}) AND YEAR({config.PAYMENT_DATE_COLUMN}) = {selected_year} AND {config.ORIGINAL_SUM_COLUMN} IS NOT NULL GROUP BY MONTH({config.PAYMENT_DATE_COLUMN}))
+            SELECT COALESCE(dtk.KyDT, ttth.ThangTT) AS Ky, ISNULL(dtk.DoanhThuKyCalc, 0) AS TongDoanhThuKy, ISNULL(ttth.ThucThuThangCalc, 0) AS TongThucThuThang FROM DoanhThuTheoKy dtk FULL OUTER JOIN ThucThuTheoThang ttth ON dtk.KyDT = ttth.ThangTT WHERE COALESCE(dtk.KyDT, ttth.ThangTT) IS NOT NULL ORDER BY Ky;
+        """
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', full_query_ky)
+        final_columns = ['Ky', 'TongDoanhThuKy', 'TongThucThuThang', 'Tồn Thu', '% Đạt']
+        if df_result.empty: return pd.DataFrame(columns=final_columns)
+        df_result['Ky'] = pd.to_numeric(df_result['Ky'], errors='coerce').fillna(0).astype(int)
+        df_result['TongDoanhThuKy'] = pd.to_numeric(df_result['TongDoanhThuKy'], errors='coerce').fillna(0)
+        df_result['TongThucThuThang'] = pd.to_numeric(df_result['TongThucThuThang'], errors='coerce').fillna(0)
+        df_result['Tồn Thu'] = df_result['TongDoanhThuKy'] - df_result['TongThucThuThang']
+        df_result['% Đạt'] = np.where(df_result['TongDoanhThuKy'] != 0, (df_result['TongThucThuThang'] / df_result['TongDoanhThuKy']) * 100, 0.0)
+        for col in final_columns:
+            if col not in df_result.columns: df_result[col] = 0
+        return df_result[final_columns]
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong run_monthly_analysis_from_db: {e}", exc_info=True); raise
+
+def run_daily_analysis_from_db(selected_year, selected_ky):
+    logging.info(f"Bắt đầu Phân tích theo Ngày cho năm {selected_year}, kỳ {selected_ky}")
+    try:
+        query = f"""
+            WITH RelevantDaysInKy AS (SELECT DISTINCT CAST({config.PAYMENT_DATE_COLUMN} AS DATE) AS NgayKyRelevant FROM {config.TABLE_SOURCE} H_KY WHERE YEAR(H_KY.{config.PAYMENT_DATE_COLUMN}) = {selected_year} AND MONTH(H_KY.{config.PAYMENT_DATE_COLUMN}) = {selected_ky} AND H_KY.{config.PERIOD_COLUMN} = {selected_ky}), 
+            DailyAggregates AS (SELECT CAST({config.PAYMENT_DATE_COLUMN} AS DATE) AS NgayGiaiAgg, COUNT(DISTINCT {config.SOHOADON_COLUMN}) AS TotalInvoicesForDate, SUM({config.ORIGINAL_SUM_COLUMN}) AS TotalCongForDate FROM {config.TABLE_SOURCE} WHERE {config.ORIGINAL_SUM_COLUMN} IS NOT NULL AND {config.SOHOADON_COLUMN} IS NOT NULL GROUP BY CAST({config.PAYMENT_DATE_COLUMN} AS DATE))
+            SELECT rdk.NgayKyRelevant AS NgayGiaiNgan, ISNULL(da.TotalInvoicesForDate, 0) AS SoLuongHoaDon, ISNULL(da.TotalCongForDate, 0) AS TongCongNgay FROM RelevantDaysInKy rdk LEFT JOIN DailyAggregates da ON rdk.NgayKyRelevant = da.NgayGiaiAgg ORDER BY rdk.NgayKyRelevant;
+        """
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', query)
+        final_columns = ['NgayGiaiNgan', 'SoLuongHoaDon', 'TongCongNgay']
+        if df_result.empty: return pd.DataFrame(columns=final_columns)
+        for col in final_columns:
+            if col not in df_result.columns: df_result[col] = 0
+        df_result['NgayGiaiNgan'] = pd.to_datetime(df_result['NgayGiaiNgan'], errors='coerce')
+        return df_result[final_columns]
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong run_daily_analysis_from_db: {e}", exc_info=True); raise
+
+# ==============================================================================
+# LOGIC CHO TAB 5: PHÂN TÍCH HÓA ĐƠN NỢ (CSDL)
+# ==============================================================================
+def run_outstanding_by_year_analysis():
+    logging.info("Bắt đầu Phân tích HĐ nợ theo Năm...")
+    try:
+        query = f"""
+            SELECT {config.BILLING_YEAR_COLUMN} AS NamHoaDon, COUNT(DISTINCT {config.SOHOADON_COLUMN}) AS SoLuongHoaDonNo, SUM({config.SUM_VALUE_COLUMN}) AS TongCongNo
+            FROM {config.TABLE_SOURCE} 
+            WHERE {config.PAYMENT_DATE_COLUMN} IS NULL AND {config.SUM_VALUE_COLUMN} IS NOT NULL AND {config.SOHOADON_COLUMN} IS NOT NULL
+            GROUP BY {config.BILLING_YEAR_COLUMN} ORDER BY {config.BILLING_YEAR_COLUMN} DESC;
+        """
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', query)
+        final_columns = ['NamHoaDon', 'SoLuongHoaDonNo', 'TongCongNo']
+        if df_result.empty: return pd.DataFrame(columns=final_columns)
+        return df_result[final_columns]
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong run_outstanding_by_year_analysis: {e}", exc_info=True); raise
+
+def run_outstanding_by_period_count_analysis():
+    logging.info("Bắt đầu Phân tích HĐ nợ theo Số Kỳ Nợ...")
+    try:
+        query = f"""
+            WITH DanhBaNoTheoSoKy AS (
+                SELECT {config.INVOICE_ID_COLUMN} AS DanhBa_ID, COUNT(*) AS SoKyNoThucTe, SUM({config.ORIGINAL_SUM_COLUMN}) AS TongCongNoCuaDanhBa
+                FROM {config.TABLE_SOURCE}
+                WHERE {config.PAYMENT_DATE_COLUMN} IS NULL AND {config.ORIGINAL_SUM_COLUMN} IS NOT NULL AND {config.INVOICE_ID_COLUMN} IS NOT NULL
+                GROUP BY {config.INVOICE_ID_COLUMN}
+            )
+            SELECT dbtns.SoKyNoThucTe AS KyNo, COUNT(dbtns.DanhBa_ID) AS SoLuongDanhBa, SUM(dbtns.TongCongNoCuaDanhBa) AS TongCongTheoKyNo
+            FROM DanhBaNoTheoSoKy dbtns GROUP BY dbtns.SoKyNoThucTe ORDER BY dbtns.SoKyNoThucTe DESC;
+        """
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', query)
+        final_columns = ['KyNo', 'SoLuongDanhBa', 'TongCongTheoKyNo']
+        if df_result.empty: return pd.DataFrame(columns=final_columns)
+        return df_result[final_columns]
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong run_outstanding_by_period_count_analysis: {e}", exc_info=True); raise
+
+def fetch_outstanding_details_by_year(selected_year, page_number=1, page_size=100):
+    logging.info(f"Đang tải chi tiết HĐ nợ cho năm {selected_year}, trang {page_number}, kích thước {page_size}...")
+    try:
+        offset = (page_number - 1) * page_size
+        query = f"""
+            WITH FilteredResults AS (
+                SELECT {config.INVOICE_ID_COLUMN} AS DanhBa, TENKH, SO AS SoNha, DUONG AS Duong, {config.BILLING_YEAR_COLUMN} AS NamHD, {config.PERIOD_COLUMN} AS Ky, DOT, GB AS GiaBieu, {config.SUM_VALUE_COLUMN} AS TongCong
+                FROM {config.TABLE_SOURCE} 
+                WHERE {config.BILLING_YEAR_COLUMN} = {selected_year} AND {config.PAYMENT_DATE_COLUMN} IS NULL AND {config.SUM_VALUE_COLUMN} IS NOT NULL AND {config.INVOICE_ID_COLUMN} IS NOT NULL
+            )
+            SELECT *, COUNT(*) OVER() as TotalRows FROM FilteredResults ORDER BY DanhBa OFFSET {offset} ROWS FETCH NEXT {page_size} ROWS ONLY;
+        """
+        df_page = data_sources.fetch_dataframe('f_Select_SQL_Thutien', query)
+        total_rows = 0
+        final_columns = ['DanhBa', 'TENKH', 'SoNha', 'Duong', 'NamHD', 'Ky', 'DOT', 'GiaBieu', 'TongCong']
+        if not df_page.empty:
+            total_rows = df_page['TotalRows'].iloc[0]
+            df_page = df_page[final_columns]
+            df_page['DanhBa'] = df_page['DanhBa'].astype(str).str.zfill(11)
+        else:
+            df_page = pd.DataFrame(columns=final_columns)
+        return df_page, total_rows
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong fetch_outstanding_details_by_year (paginated): {e}", exc_info=True); raise
+
+def fetch_outstanding_customers_by_period_count(selected_ky_no):
+    logging.info(f"Đang tải chi tiết các DB nợ {selected_ky_no} kỳ...")
+    try:
+        latest_criteria_column_sql = 'Ngay_NhanHD'
+        query = f"""
+            WITH DanhBaNoCounts AS (SELECT {config.INVOICE_ID_COLUMN} AS DanhBa_ID, COUNT(*) AS SoKyNoThucTe_Agg, SUM({config.ORIGINAL_SUM_COLUMN}) AS TongCongNoCuaDanhBa_Agg FROM {config.TABLE_SOURCE} WHERE {config.PAYMENT_DATE_COLUMN} IS NULL AND {config.ORIGINAL_SUM_COLUMN} IS NOT NULL AND {config.INVOICE_ID_COLUMN} IS NOT NULL GROUP BY {config.INVOICE_ID_COLUMN}),
+            FilteredDanhBa AS (SELECT DanhBa_ID, SoKyNoThucTe_Agg, TongCongNoCuaDanhBa_Agg FROM DanhBaNoCounts WHERE SoKyNoThucTe_Agg = {selected_ky_no}),
+            RankedInvoices AS (SELECT hd.{config.INVOICE_ID_COLUMN} AS DanhBa_ID_RI, hd.TenKH, hd.SO AS SoNha, hd.DUONG AS Duong, hd.DOT, hd.GB, ROW_NUMBER() OVER(PARTITION BY hd.{config.INVOICE_ID_COLUMN} ORDER BY hd.{latest_criteria_column_sql} DESC) as rn FROM {config.TABLE_SOURCE} hd WHERE hd.{config.PAYMENT_DATE_COLUMN} IS NULL AND hd.{config.INVOICE_ID_COLUMN} IN (SELECT f.DanhBa_ID FROM FilteredDanhBa f) )
+            SELECT fdb.DanhBa_ID AS DanhBa, COALESCE(ri.TenKH, '') AS TenKH, COALESCE(ri.SoNha, '') AS SoNha, COALESCE(ri.Duong, '') AS Duong, fdb.SoKyNoThucTe_Agg AS SoKyNoThucTe, fdb.TongCongNoCuaDanhBa_Agg AS TongCongNoCuaDanhBa, COALESCE(ri.DOT, '') AS DOT, COALESCE(ri.GB, '') AS GB FROM FilteredDanhBa fdb LEFT JOIN RankedInvoices ri ON fdb.DanhBa_ID = ri.DanhBa_ID_RI AND ri.rn = 1 ORDER BY fdb.DanhBa_ID;
+        """
+        df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', query)
+        final_columns = ['DanhBa', 'TenKH', 'SoNha', 'Duong', 'SoKyNoThucTe', 'TongCongNoCuaDanhBa', 'DOT', 'GB']
+        if df_result.empty: return pd.DataFrame(columns=final_columns)
+        for col in final_columns:
+            if col not in df_result.columns:
+                if col in ['SoKyNoThucTe']: df_result[col] = 0
+                elif col in ['TongCongNoCuaDanhBa']: df_result[col] = 0.0
+                else: df_result[col] = ''
+        df_result = df_result[final_columns]
+        df_result['DanhBa'] = df_result['DanhBa'].astype(str).str.zfill(11)
+        return df_result
+    except Exception as e:
+        logging.error(f"❌ Lỗi trong fetch_outstanding_customers_by_period_count: {e}", exc_info=True); raise
