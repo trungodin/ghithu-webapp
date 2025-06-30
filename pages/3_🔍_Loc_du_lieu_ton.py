@@ -108,7 +108,7 @@ if st.session_state.debt_filter_results is not None:
         df['TONGCONG'] = pd.to_numeric(df['TONGCONG'], errors='coerce').fillna(0).astype(int)
         
         # TẠO CỘT MỚI ĐỂ HIỂN THỊ VỚI ĐỊNH DẠNG CHUỖI
-        df['Tổng Cộng Formatted'] = df['TONGCONG'].apply(lambda x: f"{x:,.0f} VND")
+        df['Tổng Cộng Formatted'] = df['TONGCONG'].apply(lambda x: f"{x:,.0f}")
 
         st.subheader("Kết quả lọc")
         
@@ -117,7 +117,7 @@ if st.session_state.debt_filter_results is not None:
              st.metric("Số danh bạ tìm thấy", f"{len(df):,}")
         with col2:
              total_sum = int(df['TONGCONG'].sum())
-             st.metric("Tổng cộng", f"{total_sum:,}")
+             st.metric("Tổng cộng", f"{total_sum:,} VND")
         with col3:
              st.metric("Thời gian truy vấn", f"{st.session_state.get('query_time', 0):.2f} giây")
 
