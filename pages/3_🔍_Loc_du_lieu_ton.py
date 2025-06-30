@@ -117,7 +117,7 @@ if st.session_state.debt_filter_results is not None:
              st.metric("Số danh bạ tìm thấy", f"{len(df):,}")
         with col2:
              total_sum = int(df['TONGCONG'].sum())
-             st.metric("Tổng cộng", {total_sum:,})
+             st.metric("Tổng cộng", f"{total_sum:,}")
         with col3:
              st.metric("Thời gian truy vấn", f"{st.session_state.get('query_time', 0):.2f} giây")
 
