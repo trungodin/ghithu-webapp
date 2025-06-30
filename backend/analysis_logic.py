@@ -443,7 +443,6 @@ def prepare_and_send_to_sheet(selected_df, assign_group, assign_date_str):
 # Thêm hàm này vào cuối file backend/analysis_logic.py
 
 def run_yearly_revenue_analysis_from_db(start_year, end_year, den_ngay_giai_filter):
-    # (Đây là phiên bản đầy đủ, đã sửa lỗi của chúng ta)
     logging.info(f"Bắt đầu Phân tích Doanh thu Năm (DB) cho {start_year}-{end_year}, đến ngày {den_ngay_giai_filter}")
     try:
         den_ngay_giai_str = den_ngay_giai_filter.strftime('%Y-%m-%d'); nhanvien_giai_column = 'NV_GIAI'; value_to_exclude_nv_giai = 'NKD'
@@ -464,6 +463,7 @@ def run_yearly_revenue_analysis_from_db(start_year, end_year, den_ngay_giai_filt
         return df_result[final_columns]
     except Exception as e:
         logging.error(f"❌ Lỗi trong run_yearly_revenue_analysis_from_db: {e}", exc_info=True); raise
+
 
 
 
