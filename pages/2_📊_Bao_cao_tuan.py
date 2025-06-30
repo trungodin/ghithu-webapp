@@ -28,7 +28,7 @@ st.set_page_config(
 def create_pie_chart(pie_data, group_name):
     """Tạo biểu đồ tròn tỷ lệ hoàn thành."""
     # === THAY ĐỔI TẠI ĐÂY: Giảm figsize từ (4, 3.5) xuống (3, 2.3) ===
-    fig = Figure(figsize=(2, 1, 2), dpi=100)
+    fig = Figure(figsize=(2,1,2), dpi=100)
     
     if not pie_data or not pie_data.get('sizes'):
         return fig
