@@ -1,8 +1,7 @@
-# GhithuWebApp/streamlit_app.py
-
 import streamlit as st
 import config
 import logging
+from streamlit.errors import StreamlitAPIException  # Import thêm lỗi này
 
 # Thiết lập cơ bản cho logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -12,13 +11,15 @@ def check_password():
     """Trả về True nếu người dùng đã đăng nhập, False nếu ngược lại."""
 
     def password_entered():
-        # === THAY ĐỔI LOGIC XÁC THỰC ===
-        # Ưu tiên đọc từ st.secrets khi triển khai
-        if "app_credentials" in st.secrets:
+        # === SỬA LỖI LOGIC XÁC THỰC TẠI ĐÂY ===
+        try:
+            # Thử đọc từ st.secrets trước. Nếu file secrets không tồn tại, nó sẽ gây lỗi.
             correct_username = st.secrets["app_credentials"]["username"]
             correct_password = st.secrets["app_credentials"]["password"]
-        # Nếu không, dùng file config cho môi trường local
-        else:
+            logging.info("Sử dụng thông tin xác thực từ Streamlit Secrets.")
+        except (StreamlitAPIException, KeyError):
+            # Nếu có lỗi (tức là đang chạy local), chuyển sang đọc từ file config.
+            logging.info("Không tìm thấy secrets, sử dụng thông tin xác thực từ config.py.")
             correct_username = config.LOGIN_USERNAME
             correct_password = config.LOGIN_PASSWORD
 
@@ -44,23 +45,16 @@ def check_password():
 
     return False
 
+
 # --- Giao diện chính của trang ---
+st.set_page_config(page_title="Hệ thống Ghi Thu", page_icon="🔑", layout="wide")
 
-st.set_page_config(
-    page_title="Hệ thống Ghi Thu",
-    page_icon="🔑",
-    layout="wide"
-)
-
-# Kiểm tra mật khẩu
 if not check_password():
-    st.stop() # Dừng thực thi toàn bộ phần còn lại nếu chưa đăng nhập
-
-# --- Nếu đã đăng nhập thành công, hiển thị phần bên dưới ---
+    st.stop()
 
 st.title("Chào mừng đến với Hệ thống Hỗ trợ Ghi Thu! 👋")
 st.sidebar.success("Bạn đã đăng nhập thành công.")
-st.sidebar.image("https://i.imgur.com/2OfSnJB.png", width=150) # Bạn có thể thay bằng logo của mình
+st.sidebar.image("https://i.imgur.com/2OfSnJB.png", width=150)
 
 st.info(
     """
