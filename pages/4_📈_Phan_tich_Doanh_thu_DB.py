@@ -7,6 +7,7 @@ import numpy as np
 from matplotlib.figure import Figure
 import matplotlib.ticker as ticker
 import matplotlib.dates as mdates
+import io
 
 # Giúp Python tìm thấy các module ở thư mục cha
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -18,6 +19,16 @@ from backend.analysis_logic import run_yearly_revenue_analysis_from_db, run_mont
 # --- Cấu hình trang ---
 st.set_page_config(page_title="Phân tích Doanh thu (DB)", page_icon="💵", layout="wide")
 
+# === HÀM TIỆN ÍCH MỚI ĐỂ XUẤT EXCEL ===
+@st.cache_data
+def to_excel(df: pd.DataFrame) -> bytes:
+    output = io.BytesIO()
+    # Ghi đè lên file Excel trong bộ nhớ
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    processed_data = output.getvalue()
+    return processed_data
+# =======================================
 
 # --- Các hàm vẽ biểu đồ (figsize đã được điều chỉnh nhỏ lại) ---
 def create_yearly_revenue_chart(df: pd.DataFrame):
@@ -156,19 +167,30 @@ with tab_month:
     st.header("Chi tiết theo Kỳ")
     df_yearly_for_select = st.session_state.get('yearly_df')
     if df_yearly_for_select is None or df_yearly_for_select.empty:
-        st.info("Chưa có dữ liệu. Vui lòng chạy phân tích ở sidebar và xem kết quả ở tab 'Theo Năm' trước.")
+        st.info("Chưa có dữ liệu. Vui lòng chạy phân tích ở sidebar trước.")
     else:
-        years = df_yearly_for_select['Nam'].unique().tolist()
-        st.selectbox("Chọn năm để xem chi tiết:", options=years, key="year_select_in_tab", on_change=run_month_analysis,
-                     placeholder="Chọn một năm...")
+        with st.container(border=True):
+            years = df_yearly_for_select['Nam'].unique().tolist()
+            selected_year = st.selectbox("Chọn năm để xem chi tiết:", options=years, key="year_select_in_tab",
+                                         on_change=run_month_analysis)
+            st.caption(f"Đang hiển thị chi tiết cho năm: **{st.session_state.get('drilldown_year', 'Chưa chọn')}**")
 
         df_monthly = st.session_state.get('monthly_df')
         if df_monthly is not None:
-            if df_monthly.empty:
-                st.warning(f"Không có dữ liệu chi tiết kỳ cho năm {st.session_state.get('drilldown_year')}.")
-            else:
-                st.markdown(f"#### Kết quả cho Năm {st.session_state.get('drilldown_year')}")
-                col1, col2 = st.columns([1.5, 1])
+            if not df_monthly.empty:
+                st.divider()
+                year_for_title = st.session_state.get('drilldown_year')
+                st.markdown(f"#### Kết quả cho Năm {year_for_title}")
+
+                # === NÚT TẢI EXCEL CHO BẢNG KỲ ===
+                excel_data_ky = to_excel(df_monthly)
+                st.download_button(
+                    label="📥 Tải Excel (Chi tiết Kỳ)",
+                    data=excel_data_ky,
+                    file_name=f"ChiTiet_Ky_Nam_{year_for_title}.xlsx"
+                )
+
+                col1, col2 = st.columns([1.2, 1])
                 with col1:
                     df_display_monthly = df_monthly.rename(
                         columns={'Ky': 'Kỳ', 'TongDoanhThuKy': 'Chuẩn thu', 'TongThucThuThang': 'Thực thu'})
@@ -180,30 +202,60 @@ with tab_month:
 
 with tab_day:
     st.header("Chi tiết theo Ngày")
-    df_monthly_for_select = st.session_state.get('monthly_df')
-    if df_monthly_for_select is None or df_monthly_for_select.empty:
-        st.info("Chưa có dữ liệu theo kỳ. Vui lòng chọn năm ở tab 'Theo Kỳ'.")
-    else:
-        year_for_day = st.session_state.get('drilldown_year')
-        st.markdown(f"**Năm đang chọn: {year_for_day}**")
-        kys = df_monthly_for_select['Ky'].unique().tolist()
-        st.selectbox("Chọn kỳ để xem chi tiết:", options=kys, key="ky_select_for_day", on_change=run_day_analysis,
-                     placeholder="Chọn một kỳ...")
 
-        df_daily = st.session_state.get('daily_df')
-        if df_daily is not None:
-            ky_for_title = st.session_state.get('drilldown_ky_final')
-            st.markdown(f"#### Kết quả cho Kỳ {ky_for_title} - Năm {year_for_day}")
+    # Lấy dữ liệu của tháng để có thể chọn kỳ
+    df_monthly_for_select = st.session_state.get('monthly_df')
+
+    if df_monthly_for_select is None or df_monthly_for_select.empty:
+        st.info("Chưa có dữ liệu theo kỳ. Vui lòng chọn năm ở tab 'Theo Kỳ' trước.")
+    else:
+        with st.container(border=True):
+            year_for_day = st.session_state.get('drilldown_year')
+            st.markdown(f"**Năm đang chọn: {year_for_day}**")
+            kys = df_monthly_for_select['Ky'].unique().tolist()
+
+            # Sử dụng on_change để tự động tải khi chọn kỳ mới
+            st.selectbox("Chọn kỳ để xem chi tiết:", options=kys, key="ky_select_for_day", on_change=run_day_analysis,
+                         placeholder="Chọn một kỳ...")
+            st.caption(f"Đang hiển thị chi tiết cho kỳ: **{st.session_state.get('drilldown_ky_final', 'Chưa chọn')}**")
+
+    st.divider()
+
+    # Hiển thị kết quả chi tiết ngày nếu có trong session_state
+    df_daily = st.session_state.get('daily_df')
+    if df_daily is not None:
+        year_for_title = st.session_state.get('drilldown_year_final')
+        ky_for_title = st.session_state.get('drilldown_ky_final')
+
+        if year_for_title and ky_for_title:
+            st.markdown(f"#### Kết quả cho Kỳ {ky_for_title} - Năm {year_for_title}")
+
             if df_daily.empty:
-                st.warning(f"Không có dữ liệu chi tiết ngày cho kỳ {ky_for_title}/{year_for_day}.")
+                st.warning(f"Không có dữ liệu chi tiết ngày cho kỳ {ky_for_title}/{year_for_title}.")
             else:
-                col1, col2 = st.columns([1.5, 1])
+                # === SỬA LỖI XUẤT EXCEL TẠI ĐÂY ===
+                # Tạo một bản sao của DataFrame để xử lý cho việc xuất Excel
+                df_for_excel = df_daily.copy()
+                # Kiểm tra và loại bỏ thông tin timezone khỏi cột datetime
+                if pd.api.types.is_datetime64_any_dtype(df_for_excel['NgayGiaiNgan']):
+                    # .dt.tz_localize(None) sẽ loại bỏ thông tin timezone
+                    df_for_excel['NgayGiaiNgan'] = df_for_excel['NgayGiaiNgan'].dt.tz_localize(None)
+
+                excel_data_ngay = to_excel(df_for_excel)
+                st.download_button(
+                    label="📥 Tải Excel (Chi tiết Ngày)",
+                    data=excel_data_ngay,
+                    file_name=f"ChiTiet_Ngay_Ky{ky_for_title}_{year_for_title}.xlsx"
+                )
+
+                # Bảng và Biểu đồ
+                col1, col2 = st.columns([1.2, 1])
                 with col1:
                     df_display_daily = df_daily.rename(
                         columns={'NgayGiaiNgan': 'Ngày giải ngân', 'SoLuongHoaDon': 'Hóa đơn',
                                  'TongCongNgay': 'Tổng cộng'})
-                    st.dataframe(
-                        df_display_daily.style.format({'Ngày giải ngân': '{:%d/%m/%Y}', 'Tổng cộng': '{:,.0f}'}),
-                        use_container_width=True)
+                    st.dataframe(df_display_daily.style.format(
+                        {'Ngày giải ngân': '{:%d/%m/%Y}', 'Tổng cộng': '{:,.0f}', 'Hóa đơn': '{:,}'}),
+                                 use_container_width=True)
                 with col2:
-                    st.pyplot(create_daily_revenue_chart(df_daily, year_for_day, ky_for_title))
+                    st.pyplot(create_daily_revenue_chart(df_daily, year_for_title, ky_for_title))

@@ -746,26 +746,61 @@ def fetch_outstanding_details_by_year(selected_year, page_number=1, page_size=10
     except Exception as e:
         logging.error(f"❌ Lỗi trong fetch_outstanding_details_by_year (paginated): {e}", exc_info=True); raise
 
-def fetch_outstanding_customers_by_period_count(selected_ky_no):
-    logging.info(f"Đang tải chi tiết các DB nợ {selected_ky_no} kỳ...")
+
+def fetch_outstanding_customers_by_period_count(operator, value):
+    """
+    Lấy danh sách các danh bạ nợ dựa trên điều kiện so sánh số kỳ.
+    """
+    logging.info(f"Đang tải chi tiết các DB nợ có số kỳ {operator} {value}...")
+
+    # Kiểm tra để đảm bảo toán tử là hợp lệ, tránh SQL Injection
+    valid_operators = ['=', '>', '<', '>=', '<=']
+    if operator not in valid_operators:
+        raise ValueError("Toán tử so sánh không hợp lệ.")
+
     try:
         latest_criteria_column_sql = 'Ngay_NhanHD'
+        # Câu lệnh SQL được cập nhật để nhận toán tử động
         query = f"""
-            WITH DanhBaNoCounts AS (SELECT {config.INVOICE_ID_COLUMN} AS DanhBa_ID, COUNT(*) AS SoKyNoThucTe_Agg, SUM({config.ORIGINAL_SUM_COLUMN}) AS TongCongNoCuaDanhBa_Agg FROM {config.TABLE_SOURCE} WHERE {config.PAYMENT_DATE_COLUMN} IS NULL AND {config.ORIGINAL_SUM_COLUMN} IS NOT NULL AND {config.INVOICE_ID_COLUMN} IS NOT NULL GROUP BY {config.INVOICE_ID_COLUMN}),
-            FilteredDanhBa AS (SELECT DanhBa_ID, SoKyNoThucTe_Agg, TongCongNoCuaDanhBa_Agg FROM DanhBaNoCounts WHERE SoKyNoThucTe_Agg = {selected_ky_no}),
-            RankedInvoices AS (SELECT hd.{config.INVOICE_ID_COLUMN} AS DanhBa_ID_RI, hd.TenKH, hd.SO AS SoNha, hd.DUONG AS Duong, hd.DOT, hd.GB, ROW_NUMBER() OVER(PARTITION BY hd.{config.INVOICE_ID_COLUMN} ORDER BY hd.{latest_criteria_column_sql} DESC) as rn FROM {config.TABLE_SOURCE} hd WHERE hd.{config.PAYMENT_DATE_COLUMN} IS NULL AND hd.{config.INVOICE_ID_COLUMN} IN (SELECT f.DanhBa_ID FROM FilteredDanhBa f) )
-            SELECT fdb.DanhBa_ID AS DanhBa, COALESCE(ri.TenKH, '') AS TenKH, COALESCE(ri.SoNha, '') AS SoNha, COALESCE(ri.Duong, '') AS Duong, fdb.SoKyNoThucTe_Agg AS SoKyNoThucTe, fdb.TongCongNoCuaDanhBa_Agg AS TongCongNoCuaDanhBa, COALESCE(ri.DOT, '') AS DOT, COALESCE(ri.GB, '') AS GB FROM FilteredDanhBa fdb LEFT JOIN RankedInvoices ri ON fdb.DanhBa_ID = ri.DanhBa_ID_RI AND ri.rn = 1 ORDER BY fdb.DanhBa_ID;
+            WITH DanhBaNoCounts AS (
+                SELECT {config.INVOICE_ID_COLUMN} AS DanhBa_ID, COUNT(*) AS SoKyNoThucTe_Agg, SUM({config.ORIGINAL_SUM_COLUMN}) AS TongCongNoCuaDanhBa_Agg
+                FROM {config.TABLE_SOURCE}
+                WHERE {config.PAYMENT_DATE_COLUMN} IS NULL AND {config.ORIGINAL_SUM_COLUMN} IS NOT NULL AND {config.INVOICE_ID_COLUMN} IS NOT NULL
+                GROUP BY {config.INVOICE_ID_COLUMN}
+            ),
+            FilteredDanhBa AS (
+                SELECT DanhBa_ID, SoKyNoThucTe_Agg, TongCongNoCuaDanhBa_Agg FROM DanhBaNoCounts 
+                WHERE SoKyNoThucTe_Agg {operator} {value}  -- <<< THAY ĐỔI QUAN TRỌNG Ở ĐÂY
+            ),
+            RankedInvoices AS (
+                SELECT hd.{config.INVOICE_ID_COLUMN} AS DanhBa_ID_RI, hd.TenKH, hd.SO AS SoNha, hd.DUONG AS Duong, hd.DOT, hd.GB,
+                ROW_NUMBER() OVER(PARTITION BY hd.{config.INVOICE_ID_COLUMN} ORDER BY hd.{latest_criteria_column_sql} DESC) as rn
+                FROM {config.TABLE_SOURCE} hd
+                WHERE hd.{config.PAYMENT_DATE_COLUMN} IS NULL AND hd.{config.INVOICE_ID_COLUMN} IN (SELECT f.DanhBa_ID FROM FilteredDanhBa f) 
+            )
+            SELECT
+                fdb.DanhBa_ID AS DanhBa, COALESCE(ri.TenKH, '') AS TenKH, COALESCE(ri.SoNha, '') AS SoNha,
+                COALESCE(ri.Duong, '') AS Duong, fdb.SoKyNoThucTe_Agg AS SoKyNoThucTe, 
+                fdb.TongCongNoCuaDanhBa_Agg AS TongCongNoCuaDanhBa, COALESCE(ri.DOT, '') AS DOT,
+                COALESCE(ri.GB, '') AS GB
+            FROM FilteredDanhBa fdb LEFT JOIN RankedInvoices ri ON fdb.DanhBa_ID = ri.DanhBa_ID_RI AND ri.rn = 1 
+            ORDER BY fdb.DanhBa_ID;
         """
         df_result = data_sources.fetch_dataframe('f_Select_SQL_Thutien', query)
+
         final_columns = ['DanhBa', 'TenKH', 'SoNha', 'Duong', 'SoKyNoThucTe', 'TongCongNoCuaDanhBa', 'DOT', 'GB']
         if df_result.empty: return pd.DataFrame(columns=final_columns)
         for col in final_columns:
             if col not in df_result.columns:
-                if col in ['SoKyNoThucTe']: df_result[col] = 0
-                elif col in ['TongCongNoCuaDanhBa']: df_result[col] = 0.0
-                else: df_result[col] = ''
+                if col in ['SoKyNoThucTe']:
+                    df_result[col] = 0
+                elif col in ['TongCongNoCuaDanhBa']:
+                    df_result[col] = 0.0
+                else:
+                    df_result[col] = ''
         df_result = df_result[final_columns]
         df_result['DanhBa'] = df_result['DanhBa'].astype(str).str.zfill(11)
         return df_result
     except Exception as e:
-        logging.error(f"❌ Lỗi trong fetch_outstanding_customers_by_period_count: {e}", exc_info=True); raise
+        logging.error(f"❌ Lỗi trong fetch_outstanding_customers_by_period_count: {e}", exc_info=True)
+        raise
