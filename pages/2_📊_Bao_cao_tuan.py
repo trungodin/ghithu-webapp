@@ -22,7 +22,7 @@ st.set_page_config(
 )
 
 
-# === HÀM ĐỂ TÔ MÀU ===
+# --- Hàm tiện ích ---
 def style_debt_status(status):
     """
     Trả về một chuỗi CSS để tô màu cho từng trạng thái nợ.
@@ -36,9 +36,9 @@ def style_debt_status(status):
     return ''
 
 
-# --- Các hàm Helper ---
 @st.cache_data
 def to_excel(dfs_dict: dict) -> bytes:
+    """Xuất một dict các DataFrame thành file Excel trong bộ nhớ."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         for sheet_name, df in dfs_dict.items():
@@ -47,6 +47,7 @@ def to_excel(dfs_dict: dict) -> bytes:
 
 
 def create_pie_chart(pie_data, group_name):
+    """Tạo biểu đồ tròn tỷ lệ hoàn thành."""
     fig = Figure(figsize=(3, 2.3), dpi=100)
     if not pie_data or not pie_data.get('sizes'): return fig
     ax = fig.add_subplot(111);
@@ -82,6 +83,7 @@ if submit_button:
     payment_deadline_str = payment_deadline.strftime("%d/%m/%Y")
     with st.spinner(f"Đang phân tích dữ liệu cho nhóm '{selected_group}'... Vui lòng chờ."):
         try:
+            # Chạy hàm phân tích từ backend
             report_results = run_weekly_report_analysis(start_date_str, end_date_str, selected_group,
                                                         payment_deadline_str)
             st.session_state['weekly_report_results'] = report_results
@@ -98,10 +100,12 @@ st.title("📊 Báo cáo Công tác Tuần")
 if 'weekly_report_results' in st.session_state and st.session_state['weekly_report_results']:
     results = st.session_state['weekly_report_results']
     if "error" in results:
-        pass
+        st.error(results["error"])
     else:
         st.subheader(f"Kết quả phân tích từ {results['start_date_str']} đến {results['end_date_str']}")
-        col1, col2, col3, _ = st.columns([2, 1, 1, 4])
+
+        # --- Khu vực các nút bấm và bộ lọc xuất file ---
+        col1, col2, col3, _ = st.columns([2, 1.2, 1, 4])
         with col1:
             status_filter = st.selectbox("Lọc để xuất file:",
                                          options=["Tất cả Tình trạng", "Chưa Thanh Toán", "Đã Thanh Toán", "Khóa nước"],
@@ -125,12 +129,14 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
             success, pdf_bytes = create_pdf_report(pdf_data_for_export)
             if success: st.download_button("📕 Tải PDF", data=pdf_bytes,
                                            file_name=f"BaoCaoCongTacTuan_{date.today().strftime('%Y%m%d')}.pdf")
+
         st.divider()
 
+        # --- Hiển thị các bảng và biểu đồ ---
         summary_df = results.get('summary_df', pd.DataFrame())
         if not summary_df.empty:
             st.markdown("### Bảng tổng hợp");
-            st.dataframe(summary_df, use_container_width=True)
+            st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
         left_col, right_col = st.columns([1, 2])
         with left_col:
@@ -144,23 +150,30 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
             stats_df = results.get('stats_df', pd.DataFrame())
             if not stats_df.empty:
                 st.markdown("### Bảng thống kê chi tiết");
-                st.dataframe(stats_df, use_container_width=True)
+                st.dataframe(stats_df, use_container_width=True, hide_index=True)
         st.divider()
 
         details_df = results.get('details_df', pd.DataFrame())
         if not details_df.empty:
             st.markdown("### Danh sách chi tiết đã giao")
 
-            # === ÁP DỤNG TÔ MÀU VÀ ĐỊNH DẠNG SỐ TẠI ĐÂY ===
+            df_to_display = details_df.copy()
+
+            # Ép kiểu các cột có thể chứa cả số và chữ thành dạng văn bản
+            for col in ['Danh bạ', 'Tên KH', 'Số nhà', 'Đường', 'Kỳ năm', 'GB', 'Đợt', 'Hộp']:
+                if col in df_to_display.columns:
+                    df_to_display[col] = df_to_display[col].astype(str)
+
+            # Áp dụng tô màu và định dạng số
             st.dataframe(
-                details_df.style.applymap(
+                df_to_display.style.map(
                     style_debt_status,
-                    subset=['Tình Trạng Nợ']  # Áp dụng tô màu cho cột này
+                    subset=['Tình Trạng Nợ']
                 ).format(
-                    {'Tổng tiền': '{:,.0f}'}  # Áp dụng định dạng số cho cột này
+                    {'Tổng tiền': '{:,.0f}'}
                 ),
-                use_container_width=True
+                use_container_width=True,
+                hide_index=True
             )
-            # ===============================================
 else:
     st.info("Vui lòng chọn các tham số trong thanh sidebar bên trái và nhấn 'Chạy Phân Tích' để xem báo cáo.")
