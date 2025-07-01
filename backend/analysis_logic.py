@@ -10,6 +10,28 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import config
 from backend import data_sources
 
+
+# === HÀM TIỆN ÍCH MỚI ĐỂ ĐỊNH DẠNG NGÀY ===
+def format_date_with_vietnamese_weekday(date_obj):
+    """
+    Chuyển đổi một đối tượng ngày thành chuỗi có dạng 'T2-dd/mm/yyyy'.
+    """
+    # Nếu không phải là đối tượng ngày (ví dụ: chuỗi 'Tổng cộng'), trả về nguyên bản
+    if not isinstance(date_obj, (date, pd.Timestamp)):
+        return str(date_obj)
+
+    # Mapping từ thứ của Python (Thứ 2 = 0) sang tiếng Việt
+    weekday_map = {
+        0: 'T2', 1: 'T3', 2: 'T4', 3: 'T5', 4: 'T6', 5: 'T7', 6: 'CN'
+    }
+    weekday_str = weekday_map.get(date_obj.weekday(), '')
+    date_str = date_obj.strftime('%d/%m/%Y')
+
+    return f"{weekday_str} - {date_str}"
+
+
+# ==========================================
+
 # ==============================================================================
 # LOGIC CHO TAB 1: DASHBOARD
 # ==============================================================================
@@ -240,9 +262,8 @@ def _report_build_stats(processed_df, on_off_df, start_date_str, end_date_str, s
         bang_thong_ke = pd.concat([bang_thong_ke, total_row], ignore_index=True)
         bang_thong_ke = bang_thong_ke.rename(columns={config.ON_OFF_COL_NHOM_KHOA: 'Nhóm'})
         if 'Ngày' in bang_thong_ke.columns:
-            bang_thong_ke['Ngày'] = bang_thong_ke['Ngày'].apply(
-                lambda x: x.strftime('%d/%m/%Y') if isinstance(x, date) else x)
-    return bang_thong_ke
+            bang_thong_ke['Ngày'] = bang_thong_ke['Ngày'].apply(format_date_with_vietnamese_weekday)
+            return bang_thong_ke
 
 # Hàm chính cho báo cáo tuần
 def run_weekly_report_analysis(start_date_str, end_date_str, selected_group, payment_deadline_str):
