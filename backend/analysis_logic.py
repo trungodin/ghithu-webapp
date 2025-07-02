@@ -208,62 +208,92 @@ def _report_build_details(processed_df):
         'Kỳ năm': (config.DB_COL_KY_NAM, lambda s: ', '.join(s.dropna().unique())),
         'KỲ chưa TT': ('ky_nam chưa thanh toán', 'first'), 'Hộp': (config.DB_COL_HOP_BV, 'first'),
         'Đợt': (config.DB_COL_DOT, 'first'), 'GB': (config.DB_COL_GB, 'first'),
-        'Tình Trạng Nợ': ('Tình Trạng Nợ', 'first'), 'Ngày TT': ('NGAYGIAI_DT', 'max')}
+        'Tình Trạng Nợ': ('Tình Trạng Nợ', 'first'), 'Ngày TT': ('NGAYGIAI_DT', 'max'),'Ghi chú': (config.DB_COL_GHI_CHU, 'first')}
     final_df = processed_df.groupby(config.DB_COL_DANH_BO).agg(**agg_funcs).reset_index()
     final_df['Ngày TT'] = final_df['Ngày TT'].dt.strftime('%d/%m/%Y').fillna('')
     final_df = final_df.rename(columns={config.DB_COL_DANH_BO: 'Danh bạ'})
     display_order = ['Danh bạ', 'Tên KH', 'Tình Trạng Nợ', 'Ngày TT', 'KỲ chưa TT', 'Số nhà', 'Đường',
-                     'Tổng kỳ', 'Tổng tiền', 'Kỳ năm', 'GB', 'Đợt', 'Hộp']
+                     'Tổng kỳ', 'Tổng tiền', 'Kỳ năm', 'GB', 'Đợt', 'Hộp','Ghi chú']
     return final_df[[col for col in display_order if col in final_df.columns]]
+
 
 def _report_build_stats(processed_df, on_off_df, start_date_str, end_date_str, selected_group):
     start_date = pd.to_datetime(start_date_str, dayfirst=True).date()
     end_date = pd.to_datetime(end_date_str, dayfirst=True).date()
     ids_da_giao = processed_df[config.DB_COL_ID].dropna().unique().tolist()
     on_off_subset_df = on_off_df[on_off_df[config.ON_OFF_COL_ID].isin(ids_da_giao)].copy()
+
     khoa_df = on_off_subset_df.dropna(subset=[f'{config.ON_OFF_COL_NGAY_KHOA}_chuan_hoa']).copy()
     khoa_df['Ngày'] = khoa_df[f'{config.ON_OFF_COL_NGAY_KHOA}_chuan_hoa'].dt.date
     khoa_df = khoa_df[(khoa_df['Ngày'] >= start_date) & (khoa_df['Ngày'] <= end_date)]
-    bang_khoa = pd.DataFrame(columns=['Ngày', config.ON_OFF_COL_NHOM_KHOA, 'Số Lượng Khóa'])
+    bang_khoa = pd.DataFrame()
     if not khoa_df.empty:
         bang_khoa = khoa_df.groupby(['Ngày', config.ON_OFF_COL_NHOM_KHOA]).size().reset_index(name='Số Lượng Khóa')
+
     source_mo_df = on_off_df.copy()
     if selected_group != "Tất cả các nhóm":
         source_mo_df = source_mo_df[source_mo_df[config.ON_OFF_COL_NHOM_KHOA] == selected_group]
     mo_df = source_mo_df.dropna(subset=[f'{config.ON_OFF_COL_NGAY_MO}_chuan_hoa']).copy()
     mo_df['Ngày'] = mo_df[f'{config.ON_OFF_COL_NGAY_MO}_chuan_hoa'].dt.date
     mo_df = mo_df[(mo_df['Ngày'] >= start_date) & (mo_df['Ngày'] <= end_date)]
-    bang_mo = pd.DataFrame(columns=['Ngày', config.ON_OFF_COL_NHOM_KHOA, 'Số Lượng Mở'])
+    bang_mo = pd.DataFrame()
     if not mo_df.empty:
         bang_mo = mo_df.groupby(['Ngày', config.ON_OFF_COL_NHOM_KHOA]).size().reset_index(name='Số Lượng Mở')
+
     payments_df = processed_df[
         (processed_df['Tình Trạng Nợ'] == 'Đã Thanh Toán') & (processed_df['NGAYGIAI_DT'].notna())].copy()
     payments_df['Ngày'] = payments_df['NGAYGIAI_DT'].dt.date
     payments_df = payments_df[(payments_df['Ngày'] >= start_date) & (payments_df['Ngày'] <= end_date)]
-    payments_summary = pd.DataFrame(columns=['Ngày', config.ON_OFF_COL_NHOM_KHOA, 'Thanh toán ngày'])
+    payments_summary = pd.DataFrame()
     if not payments_df.empty:
         payments_summary = payments_df.groupby(['Ngày', config.DB_COL_NHOM]).agg(
             count_col=(config.DB_COL_DANH_BO, 'nunique')
-        ).reset_index().rename(columns={
-            'count_col': 'Thanh toán ngày', config.DB_COL_NHOM: config.ON_OFF_COL_NHOM_KHOA})
-    bang_thong_ke = pd.merge(bang_khoa, bang_mo, on=['Ngày', config.ON_OFF_COL_NHOM_KHOA], how='outer')
-    bang_thong_ke = pd.merge(bang_thong_ke, payments_summary, on=['Ngày', config.ON_OFF_COL_NHOM_KHOA],
-                             how='outer').fillna(0)
+        ).reset_index().rename(
+            columns={'count_col': 'Thanh toán ngày', config.DB_COL_NHOM: config.ON_OFF_COL_NHOM_KHOA})
+
+    # Gộp các bảng lại
+    if not bang_khoa.empty and not bang_mo.empty:
+        bang_thong_ke = pd.merge(bang_khoa, bang_mo, on=['Ngày', config.ON_OFF_COL_NHOM_KHOA], how='outer')
+    elif not bang_khoa.empty:
+        bang_thong_ke = bang_khoa
+    elif not bang_mo.empty:
+        bang_thong_ke = bang_mo
+    else:
+        bang_thong_ke = pd.DataFrame()
+
+    if not payments_summary.empty:
+        if not bang_thong_ke.empty:
+            bang_thong_ke = pd.merge(bang_thong_ke, payments_summary, on=['Ngày', config.ON_OFF_COL_NHOM_KHOA],
+                                     how='outer')
+        else:
+            bang_thong_ke = payments_summary
+
+    bang_thong_ke = bang_thong_ke.fillna(0)
+
     if not bang_thong_ke.empty:
         for col in ['Số Lượng Khóa', 'Số Lượng Mở', 'Thanh toán ngày']:
             if col in bang_thong_ke.columns: bang_thong_ke[col] = bang_thong_ke[col].astype(int)
-        total_khoa = bang_thong_ke['Số Lượng Khóa'].sum()
-        total_mo = bang_thong_ke['Số Lượng Mở'].sum()
-        total_thanh_toan = bang_thong_ke['Thanh toán ngày'].sum()
-        total_row = pd.DataFrame([{'Ngày': 'Tổng cộng', config.ON_OFF_COL_NHOM_KHOA: '',
-                                   'Số Lượng Khóa': total_khoa, 'Số Lượng Mở': total_mo,
-                                   'Thanh toán ngày': total_thanh_toan}])
+
+        total_row = pd.DataFrame([{
+            'Ngày': 'Tổng cộng',
+            config.ON_OFF_COL_NHOM_KHOA: '',
+            'Số Lượng Khóa': bang_thong_ke['Số Lượng Khóa'].sum(),
+            'Số Lượng Mở': bang_thong_ke['Số Lượng Mở'].sum(),
+            'Thanh toán ngày': bang_thong_ke['Thanh toán ngày'].sum()
+        }])
         bang_thong_ke = bang_thong_ke.sort_values(by=['Ngày'])
         bang_thong_ke = pd.concat([bang_thong_ke, total_row], ignore_index=True)
         bang_thong_ke = bang_thong_ke.rename(columns={config.ON_OFF_COL_NHOM_KHOA: 'Nhóm'})
-        if 'Ngày' in bang_thong_ke.columns:
-            bang_thong_ke['Ngày'] = bang_thong_ke['Ngày'].apply(format_date_with_vietnamese_weekday)
-            return bang_thong_ke
+
+        # === THAY ĐỔI TẠI ĐÂY ===
+        # Áp dụng hàm định dạng ngày tháng mới
+        bang_thong_ke['Ngày'] = bang_thong_ke['Ngày'].apply(format_date_with_vietnamese_weekday)
+
+        # Nếu người dùng chọn một nhóm cụ thể, ẩn cột Nhóm đi
+        if selected_group != "Tất cả các nhóm" and 'Nhóm' in bang_thong_ke.columns:
+            bang_thong_ke = bang_thong_ke.drop(columns=['Nhóm'])
+
+    return bang_thong_ke
 
 # Hàm chính cho báo cáo tuần
 def run_weekly_report_analysis(start_date_str, end_date_str, selected_group, payment_deadline_str):

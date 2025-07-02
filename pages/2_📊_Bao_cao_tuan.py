@@ -160,7 +160,7 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
             df_to_display = details_df.copy()
 
             # Ép kiểu các cột có thể chứa cả số và chữ thành dạng văn bản
-            for col in ['Danh bạ', 'Tên KH', 'Số nhà', 'Đường', 'Kỳ năm', 'GB', 'Đợt', 'Hộp']:
+            for col in ['Danh bạ', 'Tên KH', 'Số nhà', 'Đường', 'Kỳ năm', 'GB', 'Đợt', 'Hộp', '']:
                 if col in df_to_display.columns:
                     df_to_display[col] = df_to_display[col].astype(str)
 

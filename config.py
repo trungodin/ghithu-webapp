@@ -37,6 +37,7 @@ DB_COL_HOP_BV = 'hop_bv'
 DB_COL_TONG_KY = 'tong_ky'
 DB_COL_TONG_TIEN = 'tong_tien'
 DB_COL_TINH_TRANG = 'tinh_trang'
+DB_COL_GHI_CHU = 'ghi_chu' # <<< THÊM DÒNG NÀY
 
 # --- Sheet 'ON_OFF' ---
 ON_OFF_COL_ID = 'id_tb'
