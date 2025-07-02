@@ -65,16 +65,43 @@ def _build_html_content(report_data):
         if not df.empty:
             df = df.copy()
 
-            if title == 'BẢNG THỐNG KÊ CHI TIẾT:' and 'Nhóm' in df.columns:
-                df = df.drop(columns=['Nhóm'])
-
-            if title == 'BẢNG TỔNG HỢP:' and 'Tổng cộng' in df.iloc[:, 0].values:
+            # Xử lý chung cho các bảng
+            if 'Tổng cộng' in df.iloc[:, 0].values:
                 df = df.astype(str)
                 total_row_index = df[df.iloc[:, 0] == 'Tổng cộng'].index[0]
                 df.loc[total_row_index] = df.loc[total_row_index].apply(lambda x: f"<b>{x}</b>")
 
-            table_id = title.replace(" ", "_").replace(":", "")
-            table_html = df.to_html(index=False, classes='data-table', border=0, escape=False, table_id=table_id)
+            table_html = ""
+
+            # === THAY ĐỔI LOGIC TẠI ĐÂY ===
+            # Nếu là Bảng thống kê chi tiết, chúng ta sẽ thêm style trực tiếp
+            if title == 'BẢNG THỐNG KÊ CHI TIẾT:':
+                # Chuyển DataFrame thành HTML mà không có thẻ table
+                # để chúng ta có thể chèn <colgroup> vào
+                table_body_html = df.to_html(index=False, header=True, classes='data-table', border=0, escape=False)
+
+                # Bỏ thẻ <table> và </table> từ chuỗi HTML được tạo ra
+                table_body_html = table_body_html.replace('<table border="0" class="data-table">', '')
+                table_body_html = table_body_html.replace('</table>', '')
+
+                # Tạo HTML hoàn chỉnh với <colgroup> để định nghĩa độ rộng
+                table_html = f"""
+                        <table class="data-table" style="table-layout: fixed; width: 100%;">
+                            <colgroup>
+                                <col style="width: 25%;">
+                                <col style="width: 15%;">
+                                <col style="width: 15%;">
+                                <col style="width: 15%;">
+                                <col style="width: 15%;">
+                                <col style="width: 15%;">
+                            </colgroup>
+                            {table_body_html}
+                        </table>
+                        """
+            else:  # Đối với các bảng khác, giữ nguyên cách làm cũ
+                table_html = df.to_html(index=False, classes='data-table', border=0, escape=False)
+
+            # ==============================
 
             html_string += f'<p class="table-title">{title}</p>'
             html_string += table_html
@@ -124,4 +151,84 @@ def create_pdf_report(report_data):
 
     except Exception as e:
         error_details = f"Lỗi không xác định khi tạo PDF: {e}\n\nTraceback:\n{traceback.format_exc()}"
+        return False, error_details
+
+
+def create_detailed_list_pdf(report_title, df_details):
+    """
+    Tạo báo cáo PDF dạng danh sách chi tiết theo một DataFrame cho trước.
+    """
+    try:
+        css_file_path = resource_path('report_style.css')
+        with open(css_file_path, 'r', encoding='utf-8') as f:
+            css_styles = f.read()
+
+        table_body_html = df_details.to_html(index=False, classes='data-table', border=0, escape=False)
+        table_body_html = table_body_html.replace('<table border="0" class="data-table">', '').replace('</table>', '')
+
+        html_content = f"""
+        <html>
+            <head>
+                <meta charset='UTF-8'>
+                <style>
+                    {css_styles}
+                    @page {{
+                        size: A4 landscape;
+                        margin: 1cm;
+                    }}
+                    .list-title {{
+                        text-align: center;
+                        font-size: 14pt;
+                        font-weight: bold;
+                        margin: 0.5cm 0;
+                    }}
+
+                    /* === THÊM THUỘC TÍNH MỚI ĐỂ ÉP XUỐNG DÒNG === */
+                    .data-table td {{
+                        word-break: break-word; /* Hoặc 'break-all' nếu cần */
+                    }}
+                    /* ========================================= */
+                </style>
+            </head>
+            <body>
+                <table class="header-table">
+                    <tr>
+                        <td>CÔNG TY CỔ PHẦN CẤP NƯỚC BẾN THÀNH<br/><b>ĐỘI QUẢN LÝ GHI THU NƯỚC</b><div class="header-line"></div></td>
+                        <td>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM<br/><b>Độc lập - Tự do - Hạnh phúc</b><div class="header-line"></div></td>
+                    </tr>
+                </table>
+                <p class="report-date">
+                    Thành phố Hồ Chí Minh, ngày {datetime.now().day} tháng {datetime.now().month} năm {datetime.now().year}
+                </p>
+                <div class="list-title">
+                    {report_title}
+                </div>
+
+                <table class="data-table" style="table-layout: fixed; width: 100%;">
+                    <colgroup>
+                        <col style="width: 4%;">   <!-- STT -->
+                        <col style="width: 8%;">   <!-- Danh bạ -->
+                        <col style="width: 12%;">  <!-- Tên KH (đã thu hẹp) -->
+                        <col style="width: 7%;">   <!-- Số nhà -->
+                        <col style="width: 11%;">  <!-- Đường -->
+                        <col style="width: 5%;">   <!-- Tổng kỳ -->
+                        <col style="width: 8%;">   <!-- Tổng tiền -->
+                        <col style="width: 10%;">  <!-- Kỳ năm -->
+                        <col style="width: 4%;">   <!-- GB -->
+                        <col style="width: 4%;">   <!-- Đợt -->
+                        <col style="width: 4%;">   <!-- Hộp -->
+                        <col style="width: 23%;">  <!-- Ghi chú (đã mở rộng) -->
+                    </colgroup>
+                    {table_body_html}
+                </table>
+
+            </body>
+        </html>
+        """
+        base_url_path = resource_path('.')
+        html_obj = HTML(string=html_content, base_url=base_url_path)
+        return True, html_obj.write_pdf()
+
+    except Exception as e:
+        error_details = f"Lỗi không xác định khi tạo PDF chi tiết: {e}\n\nTraceback:\n{traceback.format_exc()}"
         return False, error_details

@@ -122,3 +122,51 @@ b {
 .signature-table td { width: 50%; vertical-align: top; }
 .signature-table .role { display: block; font-weight: bold; margin-bottom: 2cm; }
 .signature-table .name { display: block; font-style: italic; }
+
+/* Thêm đoạn này vào cuối file */
+
+/* Sử dụng ID của bảng để áp dụng style một cách chính xác.
+  ID #BANG_THONG_KE_CHI_TIET được tạo ra từ tiêu đề "BẢNG THỐNG KÊ CHI TIẾT:"
+*/
+#BANG_THONG_KE_CHI_TIET {
+    table-layout: fixed; /* <<< Thuộc tính quan trọng nhất để sửa lỗi */
+    width: 100%;
+}
+
+/* Định nghĩa độ rộng cho từng cột trong bảng thống kê */
+
+/* Cột 1: Ngày */
+#BANG_THONG_KE_CHI_TIET th:nth-child(1),
+#BANG_THONG_KE_CHI_TIET td:nth-child(1) {
+    width: 20%;
+}
+
+/* Cột 2: Khoá từ */
+#BANG_THONG_KE_CHI_TIET th:nth-child(2),
+#BANG_THONG_KE_CHI_TIET td:nth-child(2) {
+    width: 15%;
+}
+
+/* Cột 3: Khóa van */
+#BANG_THONG_KE_CHI_TIET th:nth-child(3),
+#BANG_THONG_KE_CHI_TIET td:nth-child(3) {
+    width: 15%;
+}
+
+/* Cột 4: Khóa nút bít */
+#BANG_THONG_KE_CHI_TIET th:nth-child(4),
+#BANG_THONG_KE_CHI_TIET td:nth-child(4) {
+    width: 15%;
+}
+
+/* Cột 5: Số Lượng Mở */
+#BANG_THONG_KE_CHI_TIET th:nth-child(5),
+#BANG_THONG_KE_CHI_TIET td:nth-child(5) {
+    width: 15%;
+}
+
+/* Cột 6: Thanh toán ngày */
+#BANG_THONG_KE_CHI_TIET th:nth-child(6),
+#BANG_THONG_KE_CHI_TIET td:nth-child(6) {
+    width: 20%;
+}

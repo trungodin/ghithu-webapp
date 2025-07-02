@@ -46,7 +46,7 @@ ON_OFF_COL_TINH_TRANG = 'tinh_trang' # <<< THÊM MỚI: Cột tình trạng tron
 ON_OFF_COL_NGAY_KHOA = 'ngay_khoa'
 ON_OFF_COL_NGAY_MO = 'ngay_mo'
 ON_OFF_COL_NHOM_KHOA = 'nhom_khoa'
-
+ON_OFF_COL_KIEU_KHOA = 'kieu_khoa'
 
 # ==============================================================================
 # CẤU HÌNH TÊN CỘT TRONG DATABASE (API)
