@@ -233,8 +233,9 @@ def _report_build_stats(processed_df, on_off_df, start_date_str, end_date_str, s
     start_date = pd.to_datetime(start_date_str, dayfirst=True).date()
     end_date = pd.to_datetime(end_date_str, dayfirst=True).date()
     ids_da_giao = processed_df[config.DB_COL_ID].dropna().unique().tolist()
-    on_off_subset_df = on_off_df[on_off_df[config.ON_OFF_COL_ID].isin(ids_da_giao)].copy()
 
+    # --- Phần tính toán cho KHÓA NƯỚC (Giữ nguyên, chỉ dựa trên danh sách giao) ---
+    on_off_subset_df = on_off_df[on_off_df[config.ON_OFF_COL_ID].isin(ids_da_giao)].copy()
     khoa_df = on_off_subset_df.dropna(subset=[f'{config.ON_OFF_COL_NGAY_KHOA}_chuan_hoa']).copy()
     khoa_df['Ngày'] = khoa_df[f'{config.ON_OFF_COL_NGAY_KHOA}_chuan_hoa'].dt.date
     khoa_df_filtered = khoa_df[(khoa_df['Ngày'] >= start_date) & (khoa_df['Ngày'] <= end_date)]
@@ -250,44 +251,60 @@ def _report_build_stats(processed_df, on_off_df, start_date_str, end_date_str, s
                 aggfunc='count',
                 fill_value=0
             ).reset_index()
-
-            # === THAY ĐỔI TIÊU ĐỀ TẠI ĐÂY ===
             rename_dict = {
                 'Khóa van từ': 'Khoá từ',
                 'Khóa van bấm chì': 'Khóa van',
-                'Khóa nút bít': 'Khóa NB'  # <-- Đã sửa tại đây
+                'Khóa nút bít': 'Khóa NB'
             }
             bang_khoa.rename(columns=rename_dict, inplace=True)
-
         except Exception as e:
             logging.error(f"Lỗi khi pivot bảng khóa: {e}")
             bang_khoa = pd.DataFrame()
 
-    expected_lock_cols = ['Khoá từ', 'Khóa van', 'Khóa NB']  # <-- Cập nhật tên mới
+    expected_lock_cols = ['Khoá từ', 'Khóa van', 'Khóa NB']
     for col in expected_lock_cols:
         if col not in bang_khoa.columns:
             bang_khoa[col] = 0
 
-    # ... (Phần code xử lý Mở và Thanh Toán không đổi) ...
-    mo_df = on_off_subset_df.dropna(subset=[f'{config.ON_OFF_COL_NGAY_MO}_chuan_hoa']).copy();
+    # === LOGIC TÍNH SỐ LƯỢNG MỞ ĐÃ ĐƯỢC CẬP NHẬT THEO YÊU CẦU MỚI ===
+    # 1. Lấy các bản ghi có ngày mở hợp lệ từ TOÀN BỘ sheet ON_OFF
+    mo_df = on_off_df.dropna(subset=[f'{config.ON_OFF_COL_NGAY_MO}_chuan_hoa']).copy()
+
+    # 2. Tạo cột 'Ngày' để chuẩn bị cho việc nhóm
     mo_df['Ngày'] = mo_df[f'{config.ON_OFF_COL_NGAY_MO}_chuan_hoa'].dt.date
-    mo_df_filtered = mo_df[(mo_df['Ngày'] >= start_date) & (mo_df['Ngày'] <= end_date)];
+
+    # 3. Lọc các bản ghi nằm trong khoảng thời gian của báo cáo
+    mo_df_filtered = mo_df[(mo_df['Ngày'] >= start_date) & (mo_df['Ngày'] <= end_date)]
+    # === THÊM BỘ LỌC THEO NHÓM VÀO ĐÂY ===
+    if selected_group != "Tất cả các nhóm":
+        # Lọc thêm theo nhóm được chọn trong sidebar
+        mo_df_filtered = mo_df_filtered[mo_df_filtered[config.ON_OFF_COL_NHOM_KHOA] == selected_group]
+    # =======================================
+
+    # 4. Tạo bảng thống kê: nhóm theo Ngày và Nhóm, sau đó đếm số lượng
     bang_mo = pd.DataFrame()
-    if not mo_df_filtered.empty: bang_mo = mo_df_filtered.groupby(
-        ['Ngày', config.ON_OFF_COL_NHOM_KHOA]).size().reset_index(name='Số Lượng Mở')
+    if not mo_df_filtered.empty and config.ON_OFF_COL_NHOM_KHOA in mo_df_filtered.columns:
+        bang_mo = mo_df_filtered.groupby(
+            ['Ngày', config.ON_OFF_COL_NHOM_KHOA]
+        ).size().reset_index(name='Số Lượng Mở')
+    # =====================================================================
+
+    # --- Phần tính toán cho THANH TOÁN (Giữ nguyên, chỉ dựa trên danh sách giao) ---
     payments_df = processed_df[
         (processed_df['Tình Trạng Nợ'] == 'Đã Thanh Toán') & (processed_df['NGAYGIAI_DT'].notna())].copy()
-    payments_df['Ngày'] = payments_df['NGAYGIAI_DT'].dt.date;
+    payments_df['Ngày'] = payments_df['NGAYGIAI_DT'].dt.date
     payments_df_filtered = payments_df[(payments_df['Ngày'] >= start_date) & (payments_df['Ngày'] <= end_date)]
     payments_summary = pd.DataFrame()
-    if not payments_df_filtered.empty: payments_summary = payments_df_filtered.groupby(
-        ['Ngày', config.DB_COL_NHOM]).agg(count_col=(config.DB_COL_DANH_BO, 'nunique')).reset_index().rename(
-        columns={'count_col': 'Thanh toán ngày', config.DB_COL_NHOM: config.ON_OFF_COL_NHOM_KHOA})
+    if not payments_df_filtered.empty:
+        payments_summary = payments_df_filtered.groupby(
+            ['Ngày', config.DB_COL_NHOM]).agg(count_col=(config.DB_COL_DANH_BO, 'nunique')).reset_index().rename(
+            columns={'count_col': 'Thanh toán ngày', config.DB_COL_NHOM: config.ON_OFF_COL_NHOM_KHOA})
 
-    # Gộp các bảng lại
-    from functools import reduce
+    # --- Gộp các bảng lại (Giữ nguyên) ---
     dfs_to_merge = [df for df in [bang_khoa, bang_mo, payments_summary] if not df.empty]
-    if not dfs_to_merge: return pd.DataFrame()
+    if not dfs_to_merge:
+        return pd.DataFrame()
+
     bang_thong_ke = reduce(
         lambda left, right: pd.merge(left, right, on=['Ngày', config.ON_OFF_COL_NHOM_KHOA], how='outer'), dfs_to_merge)
 
@@ -312,7 +329,6 @@ def _report_build_stats(processed_df, on_off_df, start_date_str, end_date_str, s
         bang_thong_ke = bang_thong_ke.drop(columns=['Nhóm'])
     bang_thong_ke['Ngày'] = bang_thong_ke['Ngày'].apply(format_date_with_vietnamese_weekday)
 
-    # Sắp xếp lại thứ tự cột với tên mới
     final_order = ['Ngày', 'Khoá từ', 'Khóa van', 'Khóa NB', 'Số Lượng Mở', 'Thanh toán ngày']
     if 'Nhóm' in bang_thong_ke.columns:
         final_order.insert(1, 'Nhóm')

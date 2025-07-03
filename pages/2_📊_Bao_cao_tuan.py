@@ -141,34 +141,54 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
                                            file_name=f"BaoCaoCongTacTuan_{date.today().strftime('%Y%m%d')}.pdf")
 
         with col4:
-            if not df_filtered_for_export.empty:
-                df_for_pdf = df_filtered_for_export.copy()
+            details_df_for_pdf = results.get('details_df', pd.DataFrame())
 
-                # Sắp xếp, chọn cột, và định dạng
-                df_for_pdf['DOT_numeric'] = pd.to_numeric(df_for_pdf['Đợt'], errors='coerce')
-                df_for_pdf = df_for_pdf.sort_values(by='DOT_numeric').drop(columns=['DOT_numeric'])
-                df_for_pdf.insert(0, 'STT', range(1, len(df_for_pdf) + 1))
-                final_pdf_cols = ['STT', 'Danh bạ', 'Tên KH', 'Số nhà', 'Đường', 'Tổng kỳ', 'Tổng tiền', 'Kỳ năm', 'GB',
-                                  'Đợt', 'Hộp', 'Ghi chú']
-                existing_cols = [col for col in final_pdf_cols if col in df_for_pdf.columns]
-                df_report = df_for_pdf[existing_cols]
+            if not details_df_for_pdf.empty:
+                df_filtered = details_df_for_pdf.copy()
+                if status_filter != "Tất cả Tình trạng":
+                    df_filtered = details_df_for_pdf[details_df_for_pdf['Tình Trạng Nợ'].str.strip() == status_filter]
 
-                # In đậm dòng (dùng dữ liệu gốc trước khi đổi kiểu)
-                df_report_styled = df_report.astype(str)
-                bold_rows_idx = df_report[df_report['GB'].astype(str) == '31'].index
-                for idx in bold_rows_idx:
-                    if idx in df_report_styled.index:
-                        for col_name in df_report_styled.columns:
-                            df_report_styled.loc[idx, col_name] = f"<b>{df_report_styled.loc[idx, col_name]}</b>"
+                if not df_filtered.empty:
+                    df_for_pdf = df_filtered.copy()
 
-                report_title = f"DANH SÁCH KHÁCH HÀNG {status_filter.upper()}"
-                if status_filter == "Tất cả Tình trạng": report_title = "DANH SÁCH KHÁCH HÀNG CHI TIẾT"
+                    df_for_pdf['DOT_numeric'] = pd.to_numeric(df_for_pdf['Đợt'], errors='coerce')
+                    df_for_pdf = df_for_pdf.sort_values(by='DOT_numeric').drop(columns=['DOT_numeric'])
+                    df_for_pdf.insert(0, 'STT', range(1, len(df_for_pdf) + 1))
 
-                success, pdf_bytes = create_detailed_list_pdf(report_title, df_report_styled)
-                if success:
-                    st.download_button(label="📄 Tải PDF Chi tiết", data=pdf_bytes,
-                                       file_name=f"DSKH_{status_filter.replace(' ', '_')}_{date.today().strftime('%Y%m%d')}.pdf")
+                    final_pdf_cols = ['STT', 'Danh bạ', 'Tên KH', 'Số nhà', 'Đường', 'Tổng kỳ', 'Tổng tiền', 'Kỳ năm',
+                                      'GB', 'Đợt', 'Hộp', 'Ghi chú']
+                    existing_cols = [col for col in final_pdf_cols if col in df_for_pdf.columns]
+                    df_report = df_for_pdf[existing_cols]
 
+                    # === THÊM BƯỚC ĐỊNH DẠNG SỐ VÀ DỌN DẸP NaN TẠI ĐÂY ===
+                    # Xử lý các giá trị rỗng trước
+                    df_report.fillna('', inplace=True)
+
+                    # Sau đó định dạng cột 'Tổng tiền' thành chuỗi có dấu phẩy
+                    if 'Tổng tiền' in df_report.columns:
+                        df_report['Tổng tiền'] = pd.to_numeric(df_report['Tổng tiền'], errors='coerce').fillna(0).apply(
+                            lambda x: f"{x:,.0f}")
+                    # =======================================================
+
+                    # In đậm dòng (dữ liệu bây giờ đã là string)
+                    df_report_styled = df_report.astype(str)
+                    bold_rows_idx = df_report[df_report['GB'].astype(str) == '31'].index
+                    for idx in bold_rows_idx:
+                        if idx in df_report_styled.index:
+                            for col_name in df_report_styled.columns:
+                                df_report_styled.loc[idx, col_name] = f"<b>{df_report_styled.loc[idx, col_name]}</b>"
+
+                    report_title = f"DANH SÁCH KHÁCH HÀNG {status_filter.upper()}"
+                    if status_filter == "Tất cả Tình trạng": report_title = "DANH SÁCH KHÁCH HÀNG CHI TIẾT"
+
+                    success, pdf_bytes = create_detailed_list_pdf(report_title, df_report_styled)
+
+                    if success:
+                        st.download_button(
+                            label="📄 Tải PDF Chi tiết",
+                            data=pdf_bytes,
+                            file_name=f"DSKH_{status_filter.replace(' ', '_')}_{date.today().strftime('%Y%m%d')}.pdf"
+                        )
         st.divider()
 
         # Hiển thị các bảng và biểu đồ trên giao diện
@@ -200,6 +220,11 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
             # Đảm bảo các cột cần định dạng có kiểu dữ liệu đúng
             df_to_display['Tổng tiền'] = pd.to_numeric(df_to_display['Tổng tiền'], errors='coerce').fillna(0)
             df_to_display['GB'] = df_to_display['GB'].astype(str)
+
+            # === THÊM DÒNG NÀY VÀO ĐÂY ===
+            if 'Số nhà' in df_to_display.columns:
+                df_to_display['Số nhà'] = df_to_display['Số nhà'].astype(str)
+            # ==============================
 
             st.dataframe(
                 df_to_display.style
