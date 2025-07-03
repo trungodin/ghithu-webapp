@@ -22,11 +22,9 @@ st.set_page_config(
 )
 
 
-# --- Hàm tiện ích ---
+# --- Các hàm tiện ích ---
 def style_debt_status(status):
-    """
-    Trả về một chuỗi CSS để tô màu cho từng trạng thái nợ.
-    """
+    """Trả về một chuỗi CSS để tô màu cho từng trạng thái nợ."""
     if status == 'Đã Thanh Toán':
         return 'color: lightgreen; font-weight: bold;'
     elif status == 'Chưa Thanh Toán':
@@ -36,13 +34,24 @@ def style_debt_status(status):
     return ''
 
 
+def style_bold_gb31(row):
+    """Nếu GB của dòng là '31', trả về style in đậm cho cả dòng."""
+    if str(row.get('GB')) == '31':
+        return ['font-weight: bold'] * len(row)
+    else:
+        return [''] * len(row)
+
+
 @st.cache_data
-def to_excel(dfs_dict: dict) -> bytes:
-    """Xuất một dict các DataFrame thành file Excel trong bộ nhớ."""
+def to_excel_multisheet(dfs_dict: dict) -> bytes:
+    """
+    Xuất một DICTIONARY các DataFrame thành file Excel, mỗi DataFrame một sheet.
+    """
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         for sheet_name, df in dfs_dict.items():
-            df.to_excel(writer, index=False, sheet_name=sheet_name)
+            if not df.empty:
+                df.to_excel(writer, index=False, sheet_name=sheet_name)
     return output.getvalue()
 
 
@@ -83,12 +92,8 @@ if submit_button:
     payment_deadline_str = payment_deadline.strftime("%d/%m/%Y")
     with st.spinner(f"Đang phân tích dữ liệu cho nhóm '{selected_group}'... Vui lòng chờ."):
         try:
-            # Chạy hàm phân tích từ backend
-            report_results = run_weekly_report_analysis(start_date_str, end_date_str, selected_group,
-                                                        payment_deadline_str)
-            st.session_state['weekly_report_results'] = report_results
-            if "error" in report_results:
-                st.error(report_results["error"])
+            st.session_state['weekly_report_results'] = run_weekly_report_analysis(start_date_str, end_date_str,
+                                                                                   selected_group, payment_deadline_str)
         except Exception as e:
             st.session_state['weekly_report_results'] = None
             st.error("Đã có lỗi xảy ra trong quá trình phân tích.");
@@ -104,27 +109,28 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
     else:
         st.subheader(f"Kết quả phân tích từ {results['start_date_str']} đến {results['end_date_str']}")
 
-        # --- LOGIC LỌC VÀ CÁC NÚT BẤM ĐÃ SỬA ---
-        details_df_original = results.get('details_df', pd.DataFrame())
-
+        # --- Khu vực các nút bấm và bộ lọc xuất file ---
         col1, col2, col3, col4, _ = st.columns([2, 1.2, 1.2, 1.5, 3])
         with col1:
             status_filter = st.selectbox("Lọc để xuất file:",
                                          options=["Tất cả Tình trạng", "Chưa Thanh Toán", "Đã Thanh Toán", "Khóa nước"],
                                          key="status_filter")
 
-        # Lọc dữ liệu MỘT LẦN DUY NHẤT để dùng chung
+        details_df_original = results.get('details_df', pd.DataFrame()).copy()
+
+        df_filtered_for_export = details_df_original
         if status_filter != "Tất cả Tình trạng":
-            df_filtered = details_df_original[details_df_original['Tình Trạng Nợ'].str.strip() == status_filter].copy()
-        else:
-            df_filtered = details_df_original.copy()
+            df_filtered_for_export = details_df_original[
+                details_df_original['Tình Trạng Nợ'].str.strip() == status_filter]
 
         export_dfs = results.get('exportable_dfs', {}).copy()
-        export_dfs['Chi_Tiet_Da_Giao'] = df_filtered  # Cập nhật lại sheet chi tiết trong dict xuất excel
+        export_dfs['Chi_Tiet_Da_Giao'] = df_filtered_for_export
 
         with col2:
-            st.download_button(label="📥 Tải Excel", data=to_excel(export_dfs),
+            # === SỬA LỖI TẠI ĐÂY ===
+            st.download_button(label="📥 Tải Excel", data=to_excel_multisheet(export_dfs),
                                file_name=f"BaoCaoTuan_{date.today().strftime('%Y%m%d')}.xlsx")
+
         with col3:
             pdf_data_for_export = {'start_date_str': results['start_date_str'], 'end_date_str': results['end_date_str'],
                                    'selected_group': results['selected_group'],
@@ -136,37 +142,58 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
                                            file_name=f"BaoCaoCongTacTuan_{date.today().strftime('%Y%m%d')}.pdf")
 
         with col4:
-            if not df_filtered.empty:
-                df_for_pdf = df_filtered.copy()
-                df_for_pdf.insert(0, 'STT', range(1, len(df_for_pdf) + 1))
+            details_df_for_pdf = results.get('details_df', pd.DataFrame())
 
-                final_pdf_cols = ['STT', 'Danh bạ', 'Tên KH', 'Số nhà', 'Đường', 'Tổng kỳ', 'Tổng tiền', 'Kỳ năm', 'GB',
-                                  'Đợt', 'Hộp', 'Ghi chú']
-                existing_cols = [col for col in final_pdf_cols if col in df_for_pdf.columns]
-                df_report = df_for_pdf[existing_cols]
+            if not details_df_for_pdf.empty:
+                df_filtered = details_df_for_pdf.copy()
+                if status_filter != "Tất cả Tình trạng":
+                    df_filtered = details_df_for_pdf[details_df_for_pdf['Tình Trạng Nợ'].str.strip() == status_filter]
 
-                df_report_styled = df_report.astype(str)
-                if 'Tổng tiền' in df_report_styled.columns:
-                    df_report_styled['Tổng tiền'] = pd.to_numeric(df_report['Tổng tiền'], errors='coerce').fillna(
-                        0).apply(lambda x: f"{x:,.0f}")
+                if not df_filtered.empty:
+                    df_for_pdf = df_filtered.copy()
 
-                bold_rows_idx = df_report[df_report['GB'].astype(str) == '31'].index
-                for idx in bold_rows_idx:
-                    if idx in df_report_styled.index:
-                        for col_name in df_report_styled.columns:
-                            df_report_styled.loc[idx, col_name] = f"<b>{df_report_styled.loc[idx, col_name]}</b>"
+                    df_for_pdf['DOT_numeric'] = pd.to_numeric(df_for_pdf['Đợt'], errors='coerce')
+                    df_for_pdf = df_for_pdf.sort_values(by='DOT_numeric').drop(columns=['DOT_numeric'])
+                    df_for_pdf.insert(0, 'STT', range(1, len(df_for_pdf) + 1))
 
-                report_title = f"DANH SÁCH KHÁCH HÀNG {status_filter.upper()}"
-                if status_filter == "Tất cả Tình trạng": report_title = "DANH SÁCH KHÁCH HÀNG CHI TIẾT"
+                    final_pdf_cols = ['STT', 'Danh bạ', 'Tên KH', 'Số nhà', 'Đường', 'Tổng kỳ', 'Tổng tiền', 'Kỳ năm',
+                                      'GB', 'Đợt', 'Hộp', 'Ghi chú']
+                    existing_cols = [col for col in final_pdf_cols if col in df_for_pdf.columns]
+                    df_report = df_for_pdf[existing_cols]
 
-                success, pdf_bytes = create_detailed_list_pdf(report_title, df_report_styled)
-                if success:
-                    st.download_button(label="📄 Tải PDF Chi tiết", data=pdf_bytes,
-                                       file_name=f"DSKH_{status_filter.replace(' ', '_')}_{date.today().strftime('%Y%m%d')}.pdf")
+                    # === THÊM BƯỚC ĐỊNH DẠNG SỐ VÀ DỌN DẸP NaN TẠI ĐÂY ===
+                    # Xử lý các giá trị rỗng trước
+                    df_report.fillna('', inplace=True)
+
+                    # Sau đó định dạng cột 'Tổng tiền' thành chuỗi có dấu phẩy
+                    if 'Tổng tiền' in df_report.columns:
+                        df_report['Tổng tiền'] = pd.to_numeric(df_report['Tổng tiền'], errors='coerce').fillna(0).apply(
+                            lambda x: f"{x:,.0f}")
+                    # =======================================================
+
+                    # In đậm dòng (dữ liệu bây giờ đã là string)
+                    df_report_styled = df_report.astype(str)
+                    bold_rows_idx = df_report[df_report['GB'].astype(str) == '31'].index
+                    for idx in bold_rows_idx:
+                        if idx in df_report_styled.index:
+                            for col_name in df_report_styled.columns:
+                                df_report_styled.loc[idx, col_name] = f"<b>{df_report_styled.loc[idx, col_name]}</b>"
+
+                    report_title = f"DANH SÁCH KHÁCH HÀNG {status_filter.upper()}"
+                    if status_filter == "Tất cả Tình trạng": report_title = "DANH SÁCH KHÁCH HÀNG CHI TIẾT"
+
+                    success, pdf_bytes = create_detailed_list_pdf(report_title, df_report_styled)
+
+                    if success:
+                        st.download_button(
+                            label="📄 Tải PDF Chi tiết",
+                            data=pdf_bytes,
+                            file_name=f"DSKH_{status_filter.replace(' ', '_')}_{date.today().strftime('%Y%m%d')}.pdf"
+                        )
 
         st.divider()
 
-        # --- Hiển thị các bảng và biểu đồ ---
+        # Hiển thị các bảng và biểu đồ trên giao diện
         summary_df = results.get('summary_df', pd.DataFrame())
         if not summary_df.empty:
             st.markdown("### Bảng tổng hợp");
@@ -185,29 +212,21 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
             if not stats_df.empty:
                 st.markdown("### Bảng thống kê chi tiết");
                 st.dataframe(stats_df, use_container_width=True, hide_index=True)
-        st.divider()
 
+        st.divider()
         details_df = results.get('details_df', pd.DataFrame())
         if not details_df.empty:
             st.markdown("### Danh sách chi tiết đã giao")
-
             df_to_display = details_df.copy()
+            df_to_display['Tổng tiền'] = pd.to_numeric(df_to_display['Tổng tiền'], errors='coerce').fillna(0)
+            df_to_display['GB'] = df_to_display['GB'].astype(str)
 
-            # Ép kiểu các cột có thể chứa cả số và chữ thành dạng văn bản
-            for col in ['Danh bạ', 'Tên KH', 'Số nhà', 'Đường', 'Kỳ năm', 'GB', 'Đợt', 'Hộp', '']:
-                if col in df_to_display.columns:
-                    df_to_display[col] = df_to_display[col].astype(str)
-
-            # Áp dụng tô màu và định dạng số
             st.dataframe(
-                df_to_display.style.map(
-                    style_debt_status,
-                    subset=['Tình Trạng Nợ']
-                ).format(
-                    {'Tổng tiền': '{:,.0f}'}
-                ),
-                use_container_width=True,
-                hide_index=True
+                df_to_display.style
+                .format({'Tổng tiền': '{:,.0f}'})
+                .map(style_debt_status, subset=['Tình Trạng Nợ'])
+                .apply(style_bold_gb31, axis=1),
+                use_container_width=True, hide_index=True
             )
 else:
     st.info("Vui lòng chọn các tham số trong thanh sidebar bên trái và nhấn 'Chạy Phân Tích' để xem báo cáo.")

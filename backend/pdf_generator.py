@@ -163,9 +163,9 @@ def create_detailed_list_pdf(report_title, df_details):
         with open(css_file_path, 'r', encoding='utf-8') as f:
             css_styles = f.read()
 
-        table_body_html = df_details.to_html(index=False, classes='data-table', border=0, escape=False)
-        table_body_html = table_body_html.replace('<table border="0" class="data-table">', '').replace('</table>', '')
+        table_html = df_details.to_html(index=False, classes='data-table', border=0, escape=False)
 
+        # === THAY ĐỔI TẠI ĐÂY: Thêm style nội tuyến cho đường kẻ ===
         html_content = f"""
         <html>
             <head>
@@ -182,19 +182,24 @@ def create_detailed_list_pdf(report_title, df_details):
                         font-weight: bold;
                         margin: 0.5cm 0;
                     }}
-
-                    /* === THÊM THUỘC TÍNH MỚI ĐỂ ÉP XUỐNG DÒNG === */
                     .data-table td {{
-                        word-break: break-word; /* Hoặc 'break-all' nếu cần */
+                        word-break: break-word;
                     }}
-                    /* ========================================= */
                 </style>
             </head>
             <body>
                 <table class="header-table">
                     <tr>
-                        <td>CÔNG TY CỔ PHẦN CẤP NƯỚC BẾN THÀNH<br/><b>ĐỘI QUẢN LÝ GHI THU NƯỚC</b><div class="header-line"></div></td>
-                        <td>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM<br/><b>Độc lập - Tự do - Hạnh phúc</b><div class="header-line"></div></td>
+                        <td>
+                            CÔNG TY CỔ PHẦN CẤP NƯỚC BẾN THÀNH<br/>
+                            <b>ĐỘI QUẢN LÝ GHI THU NƯỚC</b>
+                            <div class="header-line" style="width: 30%; margin: 2px auto 0;"></div>
+                        </td>
+                        <td>
+                            CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM<br/>
+                            <b>Độc lập - Tự do - Hạnh phúc</b>
+                            <div class="header-line" style="width: 30%; margin: 2px auto 0;"></div>
+                        </td>
                     </tr>
                 </table>
                 <p class="report-date">
@@ -206,25 +211,15 @@ def create_detailed_list_pdf(report_title, df_details):
 
                 <table class="data-table" style="table-layout: fixed; width: 100%;">
                     <colgroup>
-                        <col style="width: 4%;">   <!-- STT -->
-                        <col style="width: 8%;">   <!-- Danh bạ -->
-                        <col style="width: 12%;">  <!-- Tên KH (đã thu hẹp) -->
-                        <col style="width: 7%;">   <!-- Số nhà -->
-                        <col style="width: 11%;">  <!-- Đường -->
-                        <col style="width: 5%;">   <!-- Tổng kỳ -->
-                        <col style="width: 8%;">   <!-- Tổng tiền -->
-                        <col style="width: 10%;">  <!-- Kỳ năm -->
-                        <col style="width: 4%;">   <!-- GB -->
-                        <col style="width: 4%;">   <!-- Đợt -->
-                        <col style="width: 4%;">   <!-- Hộp -->
-                        <col style="width: 23%;">  <!-- Ghi chú (đã mở rộng) -->
-                    </colgroup>
-                    {table_body_html}
+                        <col style="width: 4%;">   <col style="width: 8%;">   <col style="width: 12%;">  <col style="width: 7%;">   <col style="width: 11%;">  <col style="width: 5%;">   <col style="width: 8%;">   <col style="width: 10%;">  <col style="width: 4%;">   <col style="width: 4%;">   <col style="width: 4%;">   <col style="width: 23%;">  </colgroup>
+                    {table_html.replace('<table border="0" class="data-table">', '').replace('</table>', '')}
                 </table>
 
             </body>
         </html>
         """
+        # ========================================================
+
         base_url_path = resource_path('.')
         html_obj = HTML(string=html_content, base_url=base_url_path)
         return True, html_obj.write_pdf()

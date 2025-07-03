@@ -318,27 +318,20 @@ def run_weekly_report_analysis(start_date_str, end_date_str, selected_group, pay
         db_df, on_off_df = _report_prepare_initial_data()
         start_date = pd.to_datetime(start_date_str, dayfirst=True)
         end_date = pd.to_datetime(end_date_str, dayfirst=True)
-
-        mask = (db_df[f'{config.DB_COL_NGAY_GIAO}_chuan_hoa'].dt.date >= start_date.date()) & \
-               (db_df[f'{config.DB_COL_NGAY_GIAO}_chuan_hoa'].dt.date <= end_date.date())
+        mask = (db_df[f'{config.DB_COL_NGAY_GIAO}_chuan_hoa'].dt.date >= start_date.date()) & (db_df[f'{config.DB_COL_NGAY_GIAO}_chuan_hoa'].dt.date <= end_date.date())
         danh_sach_chi_tiet_df = db_df[mask].copy()
-
         if selected_group != "Tất cả các nhóm":
             danh_sach_chi_tiet_df = danh_sach_chi_tiet_df[danh_sach_chi_tiet_df[config.DB_COL_NHOM] == selected_group]
-
         if danh_sach_chi_tiet_df.empty:
             return {'error': "Không có dữ liệu để phân tích cho ngày và nhóm đã chọn."}
-
         unpaid_debt_details, latest_period = data_sources.fetch_unpaid_debt_details()
         processed_df = _report_enrich_data(danh_sach_chi_tiet_df)
         locked_ids = set(on_off_df[on_off_df[config.ON_OFF_COL_ID].notna()][config.ON_OFF_COL_ID])
         processed_df['is_locked'] = processed_df[config.DB_COL_ID].isin(locked_ids)
         processed_df = _report_process_final_data(processed_df, unpaid_debt_details, latest_period, payment_deadline_str)
-
         summary_df = _report_build_summary(processed_df, selected_group)
         details_df = _report_build_details(processed_df)
         stats_df = _report_build_stats(processed_df, on_off_df, start_date_str, payment_deadline_str, selected_group)
-
         pie_chart_data = {}
         groups_to_chart = [selected_group] if selected_group != "Tất cả các nhóm" else processed_df[config.DB_COL_NHOM].unique().tolist()
         for group_name in groups_to_chart:
@@ -347,24 +340,12 @@ def run_weekly_report_analysis(start_date_str, end_date_str, selected_group, pay
             unique_customers_in_group = group_df.drop_duplicates(subset=[config.DB_COL_DANH_BO])
             da_thanh_toan = (unique_customers_in_group['Tình Trạng Nợ'] == 'Đã Thanh Toán').sum()
             so_luong_khoa = unique_customers_in_group['is_locked'].sum()
-            hoan_thanh = da_thanh_toan + so_luong_khoa
-            chua_hoan_thanh = so_luong - hoan_thanh
-            if so_luong > 0:
-                pie_chart_data[group_name] = {'labels': ['Hoàn thành', 'Chưa hoàn thành'],
-                                              'sizes': [hoan_thanh, chua_hoan_thanh]}
-        results = {
-            'start_date_str': start_date_str, 'end_date_str': end_date_str, 'selected_group': selected_group,
-            'payment_deadline_str': payment_deadline_str, 'summary_df': summary_df, 'stats_df': stats_df,
-            'details_df': details_df, 'pie_chart_data': pie_chart_data,
-            'exportable_dfs': {'Tong_Hop_Nhom': summary_df, 'Thong_Ke_Khoa_Mo': stats_df,
-                               'Chi_Tiet_Da_Giao': details_df}
-        }
-        logging.info("✅ Hoàn thành 'Báo cáo Tuần'.")
-        return results
+            hoan_thanh = da_thanh_toan + so_luong_khoa; chua_hoan_thanh = so_luong - hoan_thanh
+            if so_luong > 0: pie_chart_data[group_name] = {'labels': ['Hoàn thành', 'Chưa hoàn thành'], 'sizes': [hoan_thanh, chua_hoan_thanh]}
+        results = {'start_date_str': start_date_str, 'end_date_str': end_date_str, 'selected_group': selected_group, 'payment_deadline_str': payment_deadline_str, 'summary_df': summary_df, 'stats_df': stats_df, 'details_df': details_df, 'pie_chart_data': pie_chart_data, 'exportable_dfs': {'Tong_Hop_Nhom': summary_df, 'Thong_Ke_Khoa_Mo': stats_df, 'Chi_Tiet_Da_Giao': details_df}}
+        logging.info("✅ Hoàn thành 'Báo cáo Tuần'."); return results
     except Exception as e:
-        detailed_error = f"❌ Lỗi trong run_weekly_report_analysis: {e}"
-        logging.error(detailed_error, exc_info=True)
-        raise
+        logging.error(f"❌ Lỗi trong run_weekly_report_analysis: {e}", exc_info=True); raise
 
 # ==============================================================================
 # LOGIC CHO TAB 3: LỌC DỮ LIỆU TỒN & GỬI DS (Google Sheet)
