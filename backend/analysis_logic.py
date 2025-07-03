@@ -4,7 +4,7 @@ import logging
 from datetime import date, datetime
 import sys
 import os
-
+import streamlit as st
 # Giúp Python tìm thấy các module ở thư mục cha
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import config
@@ -83,6 +83,9 @@ def fetch_dashboard_data():
 # (Các hàm này được giữ lại từ phiên bản gốc của bạn)
 def _report_prepare_initial_data():
     db_df, on_off_df = data_sources.get_sheet_data_for_report()
+    # === THÊM DÒNG LỆNH DEBUG VÀO ĐÂY ===
+    # st.error(f"Tên các cột trong sheet ON_OFF mà chương trình đọc được: {on_off_df.columns.tolist()}")
+    # ====================================
     if config.DB_COL_KY_NAM in db_df.columns:
         db_df[config.DB_COL_DANH_BO] = db_df[config.DB_COL_DANH_BO].astype(str).str.strip().str.zfill(11)
         db_df[config.DB_COL_KY_NAM] = db_df[config.DB_COL_KY_NAM].astype(str).str.split(',')
@@ -171,7 +174,8 @@ def _report_build_summary(processed_df, selected_group):
     daily_summary_df = daily_customer_summary.groupby([config.DB_COL_NHOM, 'Ngày Giao']).agg(
         So_Luong=(config.DB_COL_DANH_BO, 'count'),
         Da_Thanh_Toan=('Tình Trạng Nợ', lambda s: (s == 'Đã Thanh Toán').sum()),
-        So_Luong_Khoa=('is_locked', 'sum')
+        So_Luong_Khoa=('is_locked_correctly', 'sum'),  # <<< SỬA DÒNG NÀY
+        So_Luong_Mo=('is_reopened_from_locked', 'sum')  # <<< THÊM DÒNG NÀY
     ).reset_index()
     if daily_summary_df.empty: return pd.DataFrame()
     daily_summary_df = daily_summary_df.sort_values(by=[config.DB_COL_NHOM, 'Ngày Giao'])
@@ -184,10 +188,16 @@ def _report_build_summary(processed_df, selected_group):
     total_so_luong = daily_summary_df['So_Luong'].sum()
     total_da_thanh_toan = daily_summary_df['Da_Thanh_Toan'].sum()
     total_so_luong_khoa = daily_summary_df['So_Luong_Khoa'].sum()
+    total_so_luong_mo = daily_summary_df['So_Luong_Mo'].sum()  # <<< THÊM DÒNG NÀY
+
+    # Cập nhật cách tính % hoàn thành
     total_phan_tram_val = (
-            (total_da_thanh_toan + total_so_luong_khoa) / total_so_luong * 100) if total_so_luong > 0 else 0
+            ((total_da_thanh_toan + total_so_luong_khoa) / total_so_luong) * 100) if total_so_luong > 0 else 0
+
+    # Thêm cột mới vào dòng tổng cộng
     total_row = pd.DataFrame([{'Ngày Giao': 'Tổng cộng', 'So_Luong': total_so_luong,
                                'Da_Thanh_Toan': total_da_thanh_toan, 'So_Luong_Khoa': total_so_luong_khoa,
+                               'So_Luong_Mo': total_so_luong_mo,  # <<< THÊM VÀO ĐÂY
                                'Phan_Tram_Hoan_Thanh': f"{total_phan_tram_val:.2f}%"}])
     total_row[config.DB_COL_NHOM] = ''
     final_summary_df = pd.concat([daily_summary_df, total_row], ignore_index=True)
@@ -196,6 +206,7 @@ def _report_build_summary(processed_df, selected_group):
     final_summary_df = final_summary_df.rename(columns={
         config.DB_COL_NHOM: 'Nhóm', 'Ngày Giao': 'Ngày Giao', 'So_Luong': 'Số Lượng',
         'Da_Thanh_Toan': 'Đã Thanh Toán', 'So_Luong_Khoa': 'Số Lượng Khóa',
+        'So_Luong_Mo': 'Số Lượng Mở',  # <<< THÊM DÒNG NÀY
         'Phan_Tram_Hoan_Thanh': '% Hoàn thành'})
     if selected_group != "Tất cả các nhóm":
         final_summary_df = final_summary_df.drop(columns=['Nhóm'])
@@ -335,6 +346,54 @@ def run_weekly_report_analysis(start_date_str, end_date_str, selected_group, pay
         processed_df['is_locked'] = processed_df[config.DB_COL_ID].isin(locked_ids)
         processed_df = _report_process_final_data(processed_df, unpaid_debt_details, latest_period, payment_deadline_str)
 
+        # ======================================================================
+        # === LOGIC MỚI (PHIÊN BẢN HOÀN CHỈNH) TÍNH SL KHÓA VÀ MỞ ===
+        # ======================================================================
+
+        # 1. Tạo một bản sao của on_off_df để thao tác an toàn
+        on_off_data = on_off_df.copy()
+
+        # 2. Chủ động đổi tên cột 'tinh_trang' trong on_off_data để tránh xung đột khi merge
+        # Đây là bước quan trọng nhất để sửa lỗi KeyError
+        tinh_trang_on_off_col = f"{config.ON_OFF_COL_TINH_TRANG}_on_off"
+        if config.ON_OFF_COL_TINH_TRANG in on_off_data.columns:
+            on_off_data.rename(columns={config.ON_OFF_COL_TINH_TRANG: tinh_trang_on_off_col}, inplace=True)
+        else:
+            # Nếu cột vẫn không tồn tại, tạo cột rỗng để tránh lỗi
+            on_off_data[tinh_trang_on_off_col] = ''
+
+        # 3. Lấy các cột cần thiết từ on_off_data đã được xử lý
+        on_off_cols_to_merge = on_off_data[[
+            config.ON_OFF_COL_ID,
+            f'{config.ON_OFF_COL_NGAY_KHOA}_chuan_hoa',
+            tinh_trang_on_off_col  # Sử dụng cột đã được đổi tên
+        ]]
+
+        # 4. Hợp nhất (merge) processed_df với dữ liệu từ on_off
+        processed_df = pd.merge(
+            processed_df,
+            on_off_cols_to_merge,
+            left_on=config.DB_COL_ID,
+            right_on=config.ON_OFF_COL_ID,
+            how='left'
+        )
+
+        # 5. Tính "Số Lượng Khóa" theo quy tắc mới: ngay_khoa >= ngay_giao
+        processed_df['is_locked_correctly'] = (
+                                                  processed_df[f'{config.ON_OFF_COL_NGAY_KHOA}_chuan_hoa'].notna()
+                                              ) & (
+                                                      processed_df[
+                                                          f'{config.ON_OFF_COL_NGAY_KHOA}_chuan_hoa'].dt.date >=
+                                                      processed_df[f'{config.DB_COL_NGAY_GIAO}_chuan_hoa'].dt.date
+                                              )
+
+        # 6. Tính "Số Lượng Mở" dựa trên những người bị khóa ở trên
+        # Sử dụng cột tinh_trang_on_off_col đã được đổi tên và thêm vào
+        processed_df['is_reopened_from_locked'] = (
+                (processed_df['is_locked_correctly'] == True) &
+                (processed_df[tinh_trang_on_off_col].astype(str).str.strip() == 'Đã mở')
+        )
+        # ======================= KẾT THÚC LOGIC MỚI =========================
         summary_df = _report_build_summary(processed_df, selected_group)
         details_df = _report_build_details(processed_df)
         stats_df = _report_build_stats(processed_df, on_off_df, start_date_str, payment_deadline_str, selected_group)
