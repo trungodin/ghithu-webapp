@@ -127,7 +127,6 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
         export_dfs['Chi_Tiet_Da_Giao'] = df_filtered_for_export
 
         with col2:
-            # === SỬA LỖI TẠI ĐÂY ===
             st.download_button(label="📥 Tải Excel", data=to_excel_multisheet(export_dfs),
                                file_name=f"BaoCaoTuan_{date.today().strftime('%Y%m%d')}.xlsx")
 
@@ -190,7 +189,6 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
                             data=pdf_bytes,
                             file_name=f"DSKH_{status_filter.replace(' ', '_')}_{date.today().strftime('%Y%m%d')}.pdf"
                         )
-
         st.divider()
 
         # Hiển thị các bảng và biểu đồ trên giao diện
@@ -212,21 +210,29 @@ if 'weekly_report_results' in st.session_state and st.session_state['weekly_repo
             if not stats_df.empty:
                 st.markdown("### Bảng thống kê chi tiết");
                 st.dataframe(stats_df, use_container_width=True, hide_index=True)
-
         st.divider()
+
         details_df = results.get('details_df', pd.DataFrame())
         if not details_df.empty:
             st.markdown("### Danh sách chi tiết đã giao")
             df_to_display = details_df.copy()
+
+            # Đảm bảo các cột cần định dạng có kiểu dữ liệu đúng
             df_to_display['Tổng tiền'] = pd.to_numeric(df_to_display['Tổng tiền'], errors='coerce').fillna(0)
             df_to_display['GB'] = df_to_display['GB'].astype(str)
 
+            # === THÊM DÒNG NÀY VÀO ĐÂY ===
+            if 'Số nhà' in df_to_display.columns:
+                df_to_display['Số nhà'] = df_to_display['Số nhà'].astype(str)
+            # ==============================
+
             st.dataframe(
                 df_to_display.style
-                .format({'Tổng tiền': '{:,.0f}'})
+                .apply(style_bold_gb31, axis=1)
                 .map(style_debt_status, subset=['Tình Trạng Nợ'])
-                .apply(style_bold_gb31, axis=1),
-                use_container_width=True, hide_index=True
+                .format({'Tổng tiền': '{:,.0f}'}),
+                use_container_width=True,
+                hide_index=True
             )
 else:
     st.info("Vui lòng chọn các tham số trong thanh sidebar bên trái và nhấn 'Chạy Phân Tích' để xem báo cáo.")
