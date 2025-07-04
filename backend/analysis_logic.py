@@ -4,6 +4,7 @@ import logging
 from datetime import date, datetime
 import sys
 import os
+import streamlit as st  # <<< THÊM DÒNG NÀY VÀO
 
 from backend.data_sources import fetch_dataframe
 
@@ -957,3 +958,133 @@ def get_analysis_data():
         }
         return results
     return None
+
+
+@st.cache_data(ttl=86400)  # Cache bộ lọc trong 1 ngày
+def get_ghi_bo_loc_data():
+    """
+    Tải dữ liệu cho các bộ lọc của tab GHI.
+    Thay thế cho FilterLoaderWorker trong code PyQt.
+    """
+    logging.info("Bắt đầu tải dữ liệu cho các bộ lọc của tab GHI...")
+
+    # Sửa lại: Dùng tên bảng đơn giản và chỉ định hàm API cần gọi
+    filters_to_load = {
+        "CoCu": {"api": "f_Select_SQL_Doc_so", "table": "[DocSo]"},
+        "Dot": {"api": "f_Select_SQL_Doc_so", "table": "[DocSo]"},
+        "HieuCu": {"api": "f_Select_SQL_Doc_so", "table": "[DocSo]"},
+        "CodeMoi": {"api": "f_Select_SQL_Doc_so", "table": "[DocSo]"},
+    }
+
+    all_results = {}
+    try:
+        for column_name, source_info in filters_to_load.items():
+            api_function = source_info["api"]
+            table_name = source_info["table"]
+            query = f"SELECT DISTINCT [{column_name}] FROM {table_name} WHERE [{column_name}] IS NOT NULL AND LTRIM(RTRIM(CAST([{column_name}] AS VARCHAR(MAX)))) <> '' ORDER BY [{column_name}]"
+            df = data_sources.fetch_dataframe(api_function, query)
+            all_results[column_name] = df[column_name].astype(str).tolist() if not df.empty else []
+
+        # Xử lý riêng cho Hộp Bảo Vệ, sửa lại tên bảng và hàm API
+        query_hopbv = """
+        SELECT DISTINCT
+            CASE 
+                WHEN HopBaoVe = 1 THEN N'Có Hộp Bảo Vệ'
+                WHEN HopBaoVe = 0 THEN N'Không có Hộp'
+                ELSE N'Chưa xác định'
+            END AS HopBaoVeText
+        FROM [KhachHang] ORDER BY HopBaoVeText;
+        """
+        df_hopbv = data_sources.fetch_dataframe('f_Select_SQL_Doc_so', query_hopbv)
+        all_results['HopBaoVe'] = df_hopbv['HopBaoVeText'].astype(str).tolist() if not df_hopbv.empty else []
+
+        logging.info("✅ Tải xong dữ liệu bộ lọc cho tab GHI.")
+        return all_results
+
+    except Exception as e:
+        logging.error(f"❌ Lỗi khi tải bộ lọc tab GHI: {e}", exc_info=True)
+        # Trả về dict rỗng với đủ các key để tránh lỗi ở giao diện
+        all_results_on_error = {key: [] for key in filters_to_load.keys()}
+        all_results_on_error['HopBaoVe'] = []
+        return all_results_on_error
+
+
+def get_ghi_chi_tiet_data(filters):
+    """
+    Tải dữ liệu chi tiết dựa trên các bộ lọc được cung cấp.
+    Phiên bản này đã sửa lỗi bộ lọc 'Đợt' và hiển thị đầy đủ các cột.
+    """
+    logging.info(f"Bắt đầu tải dữ liệu chi tiết tab GHI với bộ lọc: {filters}")
+
+    where_clauses = []
+
+    # 1. Xử lý bộ lọc thời gian (Kỳ, Năm)
+    if filters.get('nam_from') and filters.get('ky_from'):
+        where_clauses.append(f"ds.[Nam] = {filters['nam_from']} AND ds.[Ky] = {filters['ky_from']}")
+    else:
+        st.warning("Vui lòng chọn Kỳ và Năm để tải dữ liệu.")
+        return pd.DataFrame()
+
+    # 2. Xử lý các bộ lọc khác
+    filter_map = {
+        "cocu": "ds.CoCu", "dot": "ds.Dot", "hieucu": "ds.HieuCu", "codemoi": "ds.CodeMoi"
+    }
+
+    # Các bộ lọc có giá trị là SỐ (không phải chuỗi)
+    numeric_filters = ["dot"]
+
+    for key, db_column in filter_map.items():
+        filter_value = filters.get(key)
+        if filter_value and filter_value != "Tất cả":
+            # Nếu là bộ lọc số, không thêm dấu nháy đơn
+            if key in numeric_filters:
+                where_clauses.append(f"{db_column} = {filter_value}")
+            # Nếu là bộ lọc chuỗi, thêm N'...'
+            else:
+                safe_value = str(filter_value).replace("'", "''")
+                where_clauses.append(f"{db_column} = N'{safe_value}'")
+
+    # 3. Xử lý riêng cho bộ lọc "Hộp Bảo Vệ"
+    hopbaove_filter = filters.get('hopbaove')
+    if hopbaove_filter and hopbaove_filter != "Tất cả":
+        if hopbaove_filter == 'Có Hộp Bảo Vệ':
+            where_clauses.append("kh.HopBaoVe = 1")
+        elif hopbaove_filter == 'Không có Hộp':
+            where_clauses.append("kh.HopBaoVe = 0")
+        elif hopbaove_filter == 'Chưa xác định':
+            where_clauses.append("kh.HopBaoVe IS NULL")
+
+    # 4. Xây dựng câu lệnh SQL hoàn chỉnh
+    where_string = " AND ".join(where_clauses)
+
+    # === SỬA LỖI: SỬ DỤNG LẠI DANH SÁCH CỘT ĐẦY ĐỦ ===
+    column_list = [
+        "DanhBa", "MLT2", "SoNhaCu", "SoNhaMoi", "Duong", "SDT", "GB", "DM", "Nam", "Ky", "Dot", "May",
+        "TBTT", "CSCu", "CSMoi", "CodeMoi", "TieuThuCu", "TieuThuMoi", "TuNgay", "DenNgay", "TienNuoc",
+        "BVMT", "Thue", "TongTien", "SoThanCu", "HieuCu", "CoCu", "ViTriCu", "CongDungCu", "CongDungMoi",
+        "DMACu", "GhiChuKH", "GhiChuDS", "GhiChuTV", "NVGHI", "GIOGHI", "GPSDATA", "VTGHI", "StaCapNhat",
+        "MayTheoMLT", "LichSu", "SDTNT", "BVMTVAT"
+    ]
+    # =================================================
+
+    final_columns_no_alias = ", ".join([f"ds.[{col}]" for col in column_list])
+    docso_table = "[DocSo] AS ds"
+    khachhang_table = "[KhachHang] AS kh"
+    join_clause = f"LEFT JOIN {khachhang_table} ON ds.DanhBa = kh.DanhBa"
+
+    final_query = f"""
+    SELECT TOP 200 {final_columns_no_alias}
+    FROM {docso_table} {join_clause}
+    WHERE {where_string}
+    ORDER BY ds.[Dot], ds.[MLT2];
+    """
+
+    try:
+        # Gọi đúng hàm API cho dữ liệu đọc số (không cần params vì đã định dạng vào query)
+        df = data_sources.fetch_dataframe('f_Select_SQL_Doc_so', final_query, dtypes={'DanhBa': str})
+        logging.info(f"✅ Tải xong {len(df)} dòng dữ liệu chi tiết tab GHI.")
+        return df
+    except Exception as e:
+        logging.error(f"❌ Lỗi khi tải dữ liệu chi tiết tab GHI: {e}", exc_info=True)
+        st.error(f"Lỗi truy vấn CSDL: {e}")
+        return pd.DataFrame()
