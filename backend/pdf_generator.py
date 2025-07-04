@@ -211,7 +211,7 @@ def create_detailed_list_pdf(report_title, df_details):
 
                 <table class="data-table" style="table-layout: fixed; width: 100%;">
                     <colgroup>
-                        <col style="width: 4%;">   <col style="width: 8%;">   <col style="width: 12%;">  <col style="width: 7%;">   <col style="width: 11%;">  <col style="width: 5%;">   <col style="width: 8%;">   <col style="width: 10%;">  <col style="width: 4%;">   <col style="width: 4%;">   <col style="width: 4%;">   <col style="width: 23%;">  </colgroup>
+                        <col style="width: 4%;">   <col style="width: 8%;">   <col style="width: 9%;">  <col style="width: 7%;">   <col style="width: 11%;">  <col style="width: 5%;">   <col style="width: 8%;">   <col style="width: 10%;">  <col style="width: 4%;">   <col style="width: 4%;">   <col style="width: 4%;">   <col style="width: 26%;">  </colgroup>
                     {table_html.replace('<table border="0" class="data-table">', '').replace('</table>', '')}
                 </table>
 
