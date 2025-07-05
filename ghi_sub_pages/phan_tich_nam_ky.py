@@ -7,6 +7,7 @@ from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import plotly.express as px
 
 # Thêm đường dẫn của thư mục gốc
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -119,33 +120,111 @@ def show():
         st.pyplot(fig)
         st.dataframe(df_comparison.style.format("{:,.0f}"), use_container_width=True)
 
+
     elif 'ghi_yearly_df' in st.session_state and not st.session_state.ghi_yearly_df.empty:
-        df_yearly = st.session_state.ghi_yearly_df
+
+        df_yearly = st.session_state.ghi_yearly_df.copy()
+
+        # Thêm cột "Xem chi tiết"
+
         df_yearly["Xem chi tiết"] = False
 
-        col1_res, col2_res = st.columns([1, 1], gap="large")
+        # --- BỐ CỤC MỚI CHO PHẦN TỔNG QUAN ---
+
+        col1_res, col2_res = st.columns([5, 4], gap="large")  # Tăng tỷ lệ cho bảng
+
         with col1_res:
+
             st.write("###### Bảng Tổng Quan Theo Năm (Chọn ô để xem chi tiết)")
+
+            # --- LOGIC MỚI: TÍNH CHIỀU CAO VÀ ÉP ĐỊNH DẠNG SỐ ---
+
+            # 1. Tính chiều cao động để bảng co giãn đủ các dòng
+
+            table_height = (len(df_yearly) + 1) * 35 + 3
+
+            # 2. Tạo bản sao để định dạng, giữ lại bản gốc với kiểu số
+
+            df_display_yearly = df_yearly.copy()
+
+            df_display_yearly['Tổng Tiêu Thụ Mới'] = df_display_yearly['Tổng Tiêu Thụ Mới'].apply(lambda x: f"{x:,.0f}")
+
+            df_display_yearly['Số Lượng Bản Ghi'] = df_display_yearly['Số Lượng Bản Ghi'].apply(lambda x: f"{x:,.0f}")
+
+            # 3. Dùng st.data_editor với các cấu hình mới
+
             edited_df = st.data_editor(
-                df_yearly,
+
+                df_display_yearly,
+
+                height=table_height,  # Thêm chiều cao động
+
                 column_order=("Xem chi tiết", "Nam", "Tổng Tiêu Thụ Mới", "Số Lượng Bản Ghi"),
+
                 column_config={
+
                     "Xem chi tiết": st.column_config.CheckboxColumn(default=False),
-                    "Nam": st.column_config.NumberColumn(format="%d", disabled=True),
-                    "Tổng Tiêu Thụ Mới": st.column_config.NumberColumn(format="%,.0f", disabled=True),
-                    "Số Lượng Bản Ghi": st.column_config.NumberColumn(format="%,d", disabled=True),
-                }, use_container_width=True, hide_index=True)
+
+                    "Nam": st.column_config.TextColumn(disabled=True),
+
+                    # Đổi sang TextColumn vì đã tự định dạng
+
+                    "Tổng Tiêu Thụ Mới": st.column_config.TextColumn(disabled=True),
+
+                    "Số Lượng Bản Ghi": st.column_config.TextColumn(disabled=True),
+
+                },
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
 
             selected_row = edited_df[edited_df["Xem chi tiết"]]
+
             if not selected_row.empty:
                 selected_year = selected_row.iloc[0]["Nam"]
+
                 with st.spinner(f"Đang tải chi tiết cho năm {selected_year}..."):
                     st.session_state.ghi_monthly_df = get_ghi_monthly_analysis_for_year(selected_year)
+
                     st.session_state.selected_year_for_detail = selected_year
+
                 st.rerun()
+
         with col2_res:
             st.write("###### Biểu đồ Sản Lượng")
-            st.bar_chart(df_yearly.set_index('Nam'), y='Tổng Tiêu Thụ Mới')
+
+            # Chuẩn bị dữ liệu cho biểu đồ
+            df_for_chart = df_yearly.set_index('Nam')
+
+            # Tạo biểu đồ bằng Plotly Express
+            fig = px.bar(
+                df_for_chart,
+                y='Tổng Tiêu Thụ Mới',
+                text_auto=',.0f',  # Tự động thêm số liệu lên trên cột
+                labels={'Nam': 'Năm', 'Tổng Tiêu Thụ Mới': 'Tổng Tiêu Thụ'}
+            )
+
+            # Cập nhật định dạng cho tooltip khi di chuột
+            fig.update_traces(
+                textposition='outside',
+                hovertemplate="<b>Năm %{x}</b><br>Tổng Tiêu Thụ: %{y:,.0f}<extra></extra>"
+            )
+
+            # Cập nhật layout cho đẹp hơn
+            fig.update_layout(
+                yaxis_title="Tổng Tiêu Thụ Mới",
+                xaxis_title="Năm",
+                showlegend=False
+            )
+
+            # === THÊM DÒNG NÀY ĐỂ HIỂN THỊ ĐỦ CÁC NĂM ===
+            fig.update_xaxes(dtick=1)
+
+            # Hiển thị biểu đồ Plotly
+            st.plotly_chart(fig, use_container_width=True)
 
         if 'ghi_monthly_df' in st.session_state and not st.session_state.ghi_monthly_df.empty:
             df_monthly = st.session_state.ghi_monthly_df

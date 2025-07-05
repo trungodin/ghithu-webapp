@@ -1011,27 +1011,18 @@ def get_ghi_bo_loc_data():
 
 def get_ghi_chi_tiet_data(filters):
     """
-    Tải dữ liệu chi tiết. Phiên bản này hỗ trợ giới hạn số dòng động.
+    Tải dữ liệu chi tiết. Phiên bản này đã sửa lỗi NameError.
     """
-    logging.info(f"Bắt đầu tải dữ liệu chi tiết tab GHI với bộ lọc: {filters}")
+    logging.info(f"Bắt đầu tải dữ liệu (logic nâng cao) với bộ lọc: {filters}")
 
-    where_clauses = []
-    # ... (toàn bộ phần code xử lý các bộ lọc where_clauses giữ nguyên không đổi) ...
     ky_from = filters.get('ky_from');
     nam_from = filters.get('nam_from')
     ky_to = filters.get('ky_to');
     nam_to = filters.get('nam_to')
-    if ky_from and nam_from:
-        if ky_to and nam_to:
-            start_period = nam_from * 100 + ky_from;
-            end_period = nam_to * 100 + ky_to
-            if start_period > end_period: st.error("Khoảng thời gian không hợp lệ."); return pd.DataFrame()
-            where_clauses.append(
-                f"(TRY_CAST(ds.[Nam] AS INT) * 100 + TRY_CAST(ds.[Ky] AS INT)) BETWEEN {start_period} AND {end_period}")
-        else:
-            where_clauses.append(f"ds.[Nam] = {nam_from} AND ds.[Ky] = {ky_from}")
-    else:
-        st.warning("Vui lòng nhập đủ 'Từ Kỳ' và 'Từ Năm'."); return pd.DataFrame()
+    is_range_filter = bool(ky_to and nam_to)
+
+    where_clauses = []
+    # ... (phần code xử lý các bộ lọc where_clauses giữ nguyên) ...
     gb_op = filters.get('gb_op');
     gb_val = filters.get('gb_val')
     if gb_op and gb_op != "Tất cả" and gb_val:
@@ -1041,7 +1032,7 @@ def get_ghi_chi_tiet_data(filters):
             try:
                 float(gb_val); where_clauses.append(f"TRY_CAST(ds.[GB] AS FLOAT) {gb_op} {gb_val}")
             except ValueError:
-                st.warning(f"Giá trị GB '{gb_val}' không hợp lệ.")
+                pass
     ttm_op = filters.get('ttm_op');
     ttm_val = filters.get('ttm_val')
     if ttm_op and ttm_op != "Tất cả" and ttm_val is not None: where_clauses.append(
@@ -1069,15 +1060,10 @@ def get_ghi_chi_tiet_data(filters):
             where_clauses.append("kh.HopBaoVe = 0")
         elif hopbaove_filter == 'Chưa xác định':
             where_clauses.append("kh.HopBaoVe IS NULL")
+    filters_where_string = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-    # --- Xây dựng câu lệnh SQL hoàn chỉnh ---
-    where_string = " AND ".join(where_clauses)
-
-    # === THAY ĐỔI LOGIC GIỚI HẠN DÒNG TẠI ĐÂY ===
-    limit = filters.get('limit', 200)
-    top_clause = f"TOP {limit}" if limit > 0 else ""
-    # ==========================================
-
+    # --- Xây dựng câu lệnh SQL cuối cùng ---
+    # Sửa lại tên biến docso_columns thành column_list
     column_list = [
         "DanhBa", "MLT2", "SoNhaCu", "SoNhaMoi", "Duong", "SDT", "GB", "DM", "Nam", "Ky", "Dot", "May",
         "TBTT", "CSCu", "CSMoi", "CodeMoi", "TieuThuCu", "TieuThuMoi", "TuNgay", "DenNgay", "TienNuoc",
@@ -1085,61 +1071,100 @@ def get_ghi_chi_tiet_data(filters):
         "DMACu", "GhiChuKH", "GhiChuDS", "GhiChuTV", "NVGHI", "GIOGHI", "GPSDATA", "VTGHI", "StaCapNhat",
         "MayTheoMLT", "LichSu", "SDTNT", "BVMTVAT"
     ]
-    final_columns_no_alias = ", ".join([f"ds.[{col}]" for col in column_list])
+    khachhang_columns = ["HopBaoVe"]
+    # Dùng đúng tên biến 'column_list' đã định nghĩa ở trên
+    select_clause = ", ".join([f"ds.[{c}]" for c in column_list] + [f"kh.[{c}]" for c in khachhang_columns])
+
     docso_table = "[DocSo] AS ds"
     khachhang_table = "[KhachHang] AS kh"
     join_clause = f"LEFT JOIN {khachhang_table} ON ds.DanhBa = kh.DanhBa"
 
-    # Sử dụng biến top_clause trong câu lệnh SELECT
-    final_query = f"""
-    SELECT {top_clause} {final_columns_no_alias}
-    FROM {docso_table} {join_clause}
-    WHERE {where_string}
-    ORDER BY ds.[Dot], ds.[MLT2];
-    """
+    final_query = ""
+    if is_range_filter:
+        start_period = nam_from * 100 + ky_from
+        end_period = nam_to * 100 + ky_to
+        total_periods = (nam_to - nam_from) * 12 + (ky_to - ky_from) + 1
+        if total_periods <= 0: st.error("Khoảng thời gian không hợp lệ."); return pd.DataFrame()
+
+        time_where_string = f"(TRY_CAST(ds.[Nam] AS INT) * 100 + TRY_CAST(ds.[Ky] AS INT)) BETWEEN {start_period} AND {end_period}"
+        final_filters_where = f"{time_where_string} AND {filters_where_string}"
+
+        # Dùng lại 'select_clause' đã được sửa đúng
+        final_query = f"""
+        WITH 
+        FilteredPeriods AS (SELECT ds.DanhBa FROM {docso_table} {join_clause} WHERE {final_filters_where}),
+        QualifiedDanhBa AS (SELECT [DanhBa] FROM FilteredPeriods GROUP BY [DanhBa] HAVING COUNT(*) = {total_periods}),
+        RankedResult AS (
+            SELECT ds.*, kh.HopBaoVe, ROW_NUMBER() OVER(PARTITION BY ds.[DanhBa] ORDER BY ds.Nam DESC, ds.Ky DESC) as rn
+            FROM [DocSo] AS ds
+            INNER JOIN QualifiedDanhBa qdb ON ds.DanhBa = qdb.DanhBa
+            {join_clause}
+        )
+        SELECT {select_clause.replace('ds.', 'T1.').replace('kh.', 'T1.')} 
+        FROM RankedResult AS T1 WHERE T1.rn = 1 ORDER BY T1.[Dot], T1.[MLT2];
+        """
+    else:  # Lọc theo 1 kỳ duy nhất
+        time_where_string = f"ds.[Nam] = {nam_from} AND ds.[Ky] = {ky_from}"
+        final_where = f"{time_where_string} AND {filters_where_string}"
+        limit = filters.get('limit', 200)
+        top_clause = f"TOP {limit}" if limit > 0 else ""
+
+        # Dùng lại 'select_clause' đã được sửa đúng
+        final_query = f"""
+        SELECT {top_clause} {select_clause}
+        FROM {docso_table} {join_clause}
+        WHERE {final_where} ORDER BY ds.[Dot], ds.[MLT2];
+        """
 
     try:
         df = data_sources.fetch_dataframe('f_Select_SQL_Doc_so', final_query, dtypes={'DanhBa': str})
         df = df.drop(columns=['id', 'rowOrder'], errors='ignore')
-        logging.info(f"✅ Tải xong {len(df)} dòng dữ liệu chi tiết tab GHI.")
         return df
     except Exception as e:
-        logging.error(f"❌ Lỗi khi tải dữ liệu chi tiết tab GHI: {e}", exc_info=True)
+        st.error(f"Lỗi truy vấn CSDL: {e}")
         return pd.DataFrame()
 
 
 def get_ghi_chart_data(filters, group_by_column):
     """
     Tổng hợp dữ liệu để vẽ biểu đồ cho tab GHI.
-    Tương đương hàm _generate_and_show_chart trong code PyQt.
+    Phiên bản này đã thêm bước xóa các cột thừa.
     """
     logging.info(f"Bắt đầu tổng hợp dữ liệu biểu đồ theo '{group_by_column}'...")
 
-    # Xây dựng các điều kiện WHERE dựa trên các bộ lọc hiện tại
-    # (Tái sử dụng logic từ hàm get_ghi_chi_tiet_data)
+    # ... (toàn bộ phần code xây dựng where_clauses và aggregation_query giữ nguyên) ...
     where_clauses = []
-
     if filters.get('nam_from') and filters.get('ky_from'):
-        where_clauses.append(f"ds.[Nam] = {filters['nam_from']} AND ds.[Ky] = {filters['ky_from']}")
+        is_range_filter = bool(filters.get('ky_to') and filters.get('nam_to'))
+        if is_range_filter:
+            start_period = filters['nam_from'] * 100 + filters['ky_from']
+            end_period = filters['nam_to'] * 100 + filters['ky_to']
+            where_clauses.append(
+                f"(TRY_CAST(ds.[Nam] AS INT) * 100 + TRY_CAST(ds.[Ky] AS INT)) BETWEEN {start_period} AND {end_period}")
+        else:
+            where_clauses.append(f"ds.[Nam] = {filters['nam_from']} AND ds.[Ky] = {filters['ky_from']}")
     else:
         return pd.DataFrame()
-
-    filter_map = {"cocu": "ds.CoCu", "dot": "ds.Dot", "hieucu": "ds.HieuCu", "codemoi": "ds.CodeMoi"}
+    filter_map = {"cocu": "ds.CoCu", "dot": "ds.Dot", "hieucu": "ds.HieuCu", "codemoi": "ds.CodeMoi", "gb_op": "ds.GB"}
     numeric_filters = ["dot"]
-
     for key, db_column in filter_map.items():
-        # Bỏ qua chính cột đang được dùng để gom nhóm
-        if key == group_by_column.lower():
-            continue
-
+        if key == group_by_column.lower(): continue
         filter_value = filters.get(key)
-        if filter_value and filter_value != "Tất cả":
+        if key == 'gb_op' and filter_value != "Tất cả" and filters.get('gb_val'):
+            op, val = filter_value, filters.get('gb_val')
+            if op == "=":
+                where_clauses.append(f"{db_column} = '{val}'")
+            else:
+                try:
+                    float(val); where_clauses.append(f"TRY_CAST({db_column} AS FLOAT) {op} {val}")
+                except ValueError:
+                    pass
+        elif key != 'gb_op' and filter_value and filter_value != "Tất cả":
             if key in numeric_filters:
                 where_clauses.append(f"{db_column} = {filter_value}")
             else:
-                safe_value = str(filter_value).replace("'", "''")
-                where_clauses.append(f"{db_column} = N'{safe_value}'")
-
+                safe_value = str(filter_value).replace("'", "''"); where_clauses.append(
+                    f"{db_column} = N'{safe_value}'")
     hopbaove_filter = filters.get('hopbaove')
     if hopbaove_filter and hopbaove_filter != "Tất cả":
         if hopbaove_filter == 'Có Hộp Bảo Vệ':
@@ -1149,9 +1174,8 @@ def get_ghi_chart_data(filters, group_by_column):
         elif hopbaove_filter == 'Chưa xác định':
             where_clauses.append("kh.HopBaoVe IS NULL")
 
-    where_string = " AND ".join(where_clauses)
+    where_string = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-    # Câu lệnh SQL để tổng hợp dữ liệu
     aggregation_query = f"""
     SELECT
         ds.[{group_by_column}],
@@ -1170,6 +1194,10 @@ def get_ghi_chart_data(filters, group_by_column):
 
     try:
         df = data_sources.fetch_dataframe('f_Select_SQL_Doc_so', aggregation_query, dtypes={'DanhBa': str})
+
+        # === THÊM BƯỚC XÓA CỘT THỪA TẠI ĐÂY ===
+        df = df.drop(columns=['id', 'rowOrder'], errors='ignore')
+
         logging.info(f"✅ Tổng hợp xong dữ liệu biểu đồ theo '{group_by_column}'.")
         return df
     except Exception as e:
@@ -1331,13 +1359,12 @@ def get_ghi_monthly_analysis_for_year(year):
 def get_ghi_team_analysis_data(team_filter, year, period):
     """
     Lấy dữ liệu phân tích theo tổ máy.
-    Phiên bản này đã cập nhật logic tính SL Thu Được để bao gồm các trường hợp có tiêu thụ = 0.
+    Phiên bản này đã sửa lỗi KeyError khi không có dữ liệu thực thu.
     """
     logging.info(f"Bắt đầu tải phân tích tổ máy cho Tổ: {team_filter}, Năm: {year}, Kỳ: {period}...")
 
     try:
         # BƯỚC 1: LẤY DỮ LIỆU PHÁT SINH TỪ BẢNG DOCSO
-        # Lấy thêm cột TieuThuMoi để xét điều kiện = 0
         docso_where_conditions = [f"ds.[Nam] = {year}", f"ds.[Ky] = {period}"]
         if team_filter in [1, 2, 3, 4]:
             start_may, end_may = team_filter * 10 + 1, team_filter * 10 + 8
@@ -1357,6 +1384,7 @@ def get_ghi_team_analysis_data(team_filter, year, period):
         """
         df_phat_sinh = data_sources.fetch_dataframe('f_Select_SQL_Doc_so', query_phat_sinh)
         if df_phat_sinh.empty:
+            logging.warning("Không tìm thấy dữ liệu phát sinh (DocSo) cho bộ lọc này.")
             return pd.DataFrame()
 
         df_phat_sinh.rename(columns={'DanhBa': 'danhba_norm'}, inplace=True)
@@ -1370,31 +1398,31 @@ def get_ghi_team_analysis_data(team_filter, year, period):
         """
         df_thuc_thu = data_sources.fetch_dataframe('f_Select_SQL_Thutien', query_thuc_thu)
 
+        # BƯỚC 3: DÙNG PANDAS ĐỂ JOIN VÀ TỔNG HỢP
+        # === SỬA LỖI TẠI ĐÂY: XỬ LÝ KHI df_thuc_thu BỊ RỖNG ===
         if not df_thuc_thu.empty:
             df_thuc_thu.rename(columns={'DANHBA': 'danhba_norm'}, inplace=True)
-
-        # BƯỚC 3: DÙNG PANDAS ĐỂ JOIN VÀ TỔNG HỢP
-        merged_df = pd.merge(df_phat_sinh, df_thuc_thu, on='danhba_norm', how='left')
+            merged_df = pd.merge(df_phat_sinh, df_thuc_thu, on='danhba_norm', how='left')
+        else:
+            # Nếu không có dữ liệu thực thu, chỉ dùng dữ liệu phát sinh và thêm cột 'ThucThu' = 0
+            merged_df = df_phat_sinh.copy()
+            merged_df['ThucThu'] = 0.0
+        # =======================================================
 
         merged_df['TongPhatSinh'] = pd.to_numeric(merged_df['TongPhatSinh'], errors='coerce').fillna(0)
         merged_df['TieuThuMoi'] = pd.to_numeric(merged_df['TieuThuMoi'], errors='coerce').fillna(0)
         merged_df['ThucThu'] = pd.to_numeric(merged_df['ThucThu'], errors='coerce').fillna(0)
 
-        # === LOGIC MỚI CHO "THU ĐƯỢC" ===
-        # Coi như "đã thu" nếu có thực thu > 0 HOẶC nếu tiêu thụ mới bằng 0
         merged_df['is_collected'] = (merged_df['ThucThu'] > 0) | (merged_df['TieuThuMoi'] == 0)
 
-        # Tổng hợp kết quả cuối cùng theo Máy
         final_df = merged_df.groupby('May').agg(
             SoLuongBanGhi=('danhba_norm', 'count'),
             TongPhatSinh=('TongPhatSinh', 'sum'),
             ThucThu=('ThucThu', 'sum'),
-            SoLuongThuDuoc=('is_collected', 'sum')  # <<< Tính SL Thu Được dựa trên logic mới
+            SoLuongThuDuoc=('is_collected', 'sum')
         ).reset_index()
 
-        # Chuyển đổi kiểu dữ liệu cột SL Thu Được về int
         final_df['SoLuongThuDuoc'] = final_df['SoLuongThuDuoc'].astype(int)
-
         final_df['% Đạt'] = np.where(final_df['SoLuongBanGhi'] > 0,
                                      (final_df['SoLuongThuDuoc'] / final_df['SoLuongBanGhi']) * 100, 0)
 

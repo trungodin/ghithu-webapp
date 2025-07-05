@@ -173,7 +173,7 @@ def show():
                                                                                                          'period'])
                 st.session_state.selected_machine_info = {"id": machine_id, "tong_phat_sinh": tong_phat_sinh,
                                                           "thuc_thu": thuc_thu}
-            st.switch_page("pages/_chi_tiet_hd_no.py")
+            st.rerun()
 
         # === BIỂU ĐỒ ĐƯỢC DỜI XUỐNG DƯỚI BẢNG ===
         st.write("###### Biểu đồ so sánh Phát sinh và Thực thu")
